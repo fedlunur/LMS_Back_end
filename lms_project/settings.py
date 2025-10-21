@@ -17,17 +17,13 @@ BASE_DIR = Path(__file__).resolve().parent
 env_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
-
-#ALLOWED_HOSTS = ['localhost','127.0.0.1','188.245.105.29','10.0.2.2','185.65.245.140']
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
+#ALLOWED_HOSTS = ['*']
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -45,7 +41,7 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+
 
 
 # Application definition
@@ -66,6 +62,7 @@ INSTALLED_APPS = [
     'user_managment',
     'courses',
     'grading',
+  
    
   
 ]
@@ -102,6 +99,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
       'whitenoise.middleware.WhiteNoiseMiddleware',
+     
 ]
 
 ROOT_URLCONF = "lms_project.urls"
@@ -165,14 +163,14 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 JAZZMIN_SETTINGS = {
-    "site_title": "Sile Sra Admin",
-    "site_header": "Sile Sra",
-    "site_brand": "Sile Sra",
-    "site_logo": "images/logo.png",
-    "login_logo": "images/loginlogo.jpg",
+    "site_title": "LMS Admin",
+    "site_header": "Emerald LMS",
+    "site_brand": "Emerald LMS",
+    # "site_logo": "images/logo.png",
+    # "login_logo": "images/loginlogo.jpg",
     "site_logo_classes": "img-fluid rounded-circle",
-    "welcome_sign": "Welcome to Sile Sra Admin Panel",
-    "copyright": "© 2025 Sile Sra",
+    "welcome_sign": "Welcome to Emerald LMS Admin Panel",
+    "copyright": "© 2025 Emerald LMS",
     "show_sidebar": True,
     "hide_apps": ["auth.Group"],  # Updated to include the correct full app name
     "navigation_expanded": True,
@@ -269,3 +267,4 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
 ]
+

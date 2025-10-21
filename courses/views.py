@@ -4,8 +4,9 @@ from django.shortcuts import render
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .serializers import DynamicFieldSerializer, model_mapping
+from .serializers import DynamicFieldSerializer
 from .UtilMethods import *
+from lms_project.utils import *
 class GenericModelViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
 
@@ -53,10 +54,10 @@ class GenericModelViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            if self.basename.lower() == "course":
-                # Pass get_serializer method to the handler so it can serialize instance properly
-                return handle_course_create_or_update(request, serializer.__class__, self.get_serializer)
-            else:
+            # if self.basename.lower() == "course":
+            #     # Pass get_serializer method to the handler so it can serialize instance properly
+            #     return handle_course_create_or_update(request, serializer.__class__, self.get_serializer)
+            # else:
                 instance = serializer.save()
                 return self.success_response(self.get_serializer(instance).data, "Created successfully", status.HTTP_201_CREATED)
 

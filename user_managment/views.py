@@ -146,10 +146,14 @@ class UserRegister(APIView):
             "success": True,
             "result": {
                 "id": user.id,
-                "accessToken": token.get("access", ""),
-                "refreshToken": token.get("refresh", ""),
+                # "accessToken": token.get("access", ""),
+                # "refreshToken": token.get("refresh", ""),
+                "access_token": token.get("access", ""),
+                "refresh_token": token.get("refresh", ""),
+                "name":user.first_name ,
                 "first_name": user.first_name,
-                "last_name": user.middle_name,
+                "middle_name": user.middle_name,
+                "last_name": user.last_name,
                 "role":user.role.name,
                 "status": "Active",
                 "email": user.email,
@@ -212,15 +216,31 @@ class UserLogin(APIView):
         return Response({
             'success': True,
             'result': { 
-                'id': user.id,
-                'accessToken': access_token,
-                'refreshToken': refresh_token,  # Now included
-                "FirstName": user.first_name,
-                "LastName": user.middle_name,
+                
+                
+                 "id": user.id,
+                # "accessToken": token.get("access", ""),
+                # "refreshToken": token.get("refresh", ""),
+                "access_token":access_token,
+                "refresh_token": refresh_token,
+                "name":user.first_name ,
+                "first_name": user.first_name,
+                "middle_name": user.middle_name,
+                "last_name": user.last_name,
                 "role":user.role.name,
-                'status': user.status,
-                'email': user.email,
-                'isLoggedIn': user.isLoggedIn, 
+                "status": "Active",
+                "email": user.email,
+                "isLoggedIn": 1,
+                
+                # 'id': user.id,
+                # 'accessToken': access_token,
+                # 'refreshToken': refresh_token,  # Now included
+                # "FirstName": user.first_name,
+                # "LastName": user.middle_name,
+                # "role":user.role.name,
+                # 'status': user.status,
+                # 'email': user.email,
+                # 'isLoggedIn': user.isLoggedIn, 
             },
             'message': 'Login successful! Welcome back.',
         }, status=status.HTTP_200_OK)

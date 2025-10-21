@@ -24,8 +24,20 @@ model_mapping = {
         "videolesson":   VideoLesson,
         'articlelesson':ArticleLesson,
         'assignmentlesson':AssignmentLesson,
-        'lessonresource':LessonResource
-       
+        'lessonresource':LessonResource,
+           # Newly added
+        "certificate": Certificate,
+        "coursebadge": CourseBadge,
+        'quizlesson':QuizLesson,
+        "courseqa": CourseQA,
+        "courseresource": CourseResource,
+        "courseannouncement": CourseAnnouncement,
+        "checkpointquizresponse": CheckpointQuizResponse,
+        "videocheckpointquiz": VideoCheckpointQuiz,
+        "videocheckpointresponse": VideoCheckpointResponse,
+        "courserating": CourseRating,
+        "conversation": Conversation,
+        "message": Message,
       
      
   

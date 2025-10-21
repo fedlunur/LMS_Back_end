@@ -8,7 +8,6 @@ from user_managment.models import User
 from .choices import *
 from django.contrib.postgres.fields import ArrayField,JSONField
 from django.utils.text import slugify
-
 class Category(models.Model):
     name = models.CharField(max_length=120, unique=True)
     slug = models.SlugField(max_length=140, unique=True, blank=True)
@@ -20,7 +19,8 @@ class Category(models.Model):
     )
     count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
-
+    class Meta:
+        verbose_name_plural = "Category"
     def save(self, *args, **kwargs):
         if not self.slug:
             # Auto-generate slug from name if not provided
@@ -30,13 +30,12 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-
-
 class Level(models.Model):
    
     name = models.CharField(max_length=50, unique=True)  # e.g., "Beginner"
     code = models.SlugField(max_length=50, unique=True)   # e.g., "beginner"
-
+    class Meta:
+        verbose_name_plural = "Level"
     def __str__(self):
         return self.name
 
@@ -57,16 +56,17 @@ class Course(models.Model):
     approved_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
-
+    issue_certificate=models.BooleanField(default=False)
     # Moderation flags
-    is_flagged = models.BooleanField(default=False)
-    flagged_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="flagged_courses")
-    flagged_at = models.DateTimeField(null=True, blank=True)
-    flag_reason = models.TextField(blank=True)
+    # is_flagged = models.BooleanField(default=False)
+    # flagged_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="flagged_courses")
+    # flagged_at = models.DateTimeField(null=True, blank=True)
+    # flag_reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name_plural = "Courses"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["status"]),
@@ -94,6 +94,7 @@ class Module(models.Model):
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
+        verbose_name_plural = "Modules"
         ordering = ["order"]
         constraints = [
             models.UniqueConstraint(fields=["course", "order"], name="unique_module_order_per_course")
@@ -114,11 +115,9 @@ class Lesson(models.Model):
         ARTICLE='article'
         FILE = "file", "File"
         URL = "url", "URL/Link"
-     
-
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
-    module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="lessons")
     title = models.CharField(max_length=200)
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="Lessons")
+    module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="Lessons")
     description = models.TextField(blank=True)
     content_type = models.CharField(max_length=20, choices=ContentType.choices, default=ContentType.VIDEO)
     order = models.PositiveIntegerField(default=0)
@@ -127,10 +126,8 @@ class Lesson(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name_plural = "Lesson"
         ordering = ["order", "created_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["course", "order"], name="unique_lesson_order_per_course")
-        ]
 
     def __str__(self):
         return f"{self.course.title} — {self.title}"
@@ -142,7 +139,8 @@ class VideoLesson(models.Model):
     transcript = models.TextField(blank=True)
     chapters =  models.JSONField(default=list, blank=True)  # list of chapter names/timestamps
     duration = models.DurationField(null=True, blank=True)
-
+    class Meta:
+        verbose_name_plural = "VideoLesson"
 
 class QuizLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="quiz")
@@ -154,8 +152,116 @@ class QuizLesson(models.Model):
     show_correct_answers = models.BooleanField(default=True)
     grading_policy = models.CharField(max_length=20, default="highest")
     questions =  models.JSONField(default=list, blank=True)  # store question objects like TS template
+    class Meta:
+        verbose_name_plural = "QuizLesson"
+class QuizQuestion(models.Model):
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+        ('fill-blank', 'Fill in Blank'),
+        ('drag-drop', 'Drag & Drop'),
+        ('short-answer', 'Short Answer'),
+    ]
+    
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_questions')
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    question_text = models.TextField()
+    question_image = models.ImageField(upload_to='quiz_questions/', null=True, blank=True)
+    explanation = models.TextField(blank=True)
+    points = models.PositiveIntegerField(default=1)
+    order = models.PositiveIntegerField(default=0)
+    
+    # Fill in blank specific fields
+    blanks = models.JSONField(default=list, blank=True, help_text="List of correct answers for blanks")
+    
+    # Drag and drop specific fields
+    drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items")
+    drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones")
+    drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings")
+    
+    # Image support for advanced question types
+    option_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for multiple choice options")
+    drag_item_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for drag items")
+    drop_zone_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for drop zones")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']
+    
+        verbose_name_plural = "QuizQuestion"
+    def __str__(self):
+        return f"{self.lesson.title} - Question {self.order + 1}"
 
 
+class QuizAnswer(models.Model):
+    question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE, related_name='answers')
+    answer_text = models.CharField(max_length=500)
+    answer_image = models.ImageField(upload_to='quiz_answers/', null=True, blank=True)
+    is_correct = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        ordering = ['order']
+        verbose_name_plural = "QuizAnswer"
+    
+    def __str__(self):
+        return f"{self.question.question_text[:50]} - {self.answer_text}"
+
+
+class QuizAttempt(models.Model):
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='quiz_attempt_student')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_lesson')
+    score = models.FloatField(default=0.0)  # Percentage score (0-100)
+    total_questions = models.PositiveIntegerField(default=0)
+    correct_answers = models.PositiveIntegerField(default=0)
+    completed_at = models.DateTimeField(auto_now_add=True)
+    time_taken = models.DurationField(null=True, blank=True)  # Time taken to complete
+    
+    class Meta:
+        unique_together = ['student', 'lesson']  # One attempt per student per lesson
+        ordering = ['-completed_at']
+        verbose_name_plural = "QuizAttempt"
+    
+    def calculate_score(self):
+        """Calculate the score based on correct answers"""
+        if self.total_questions > 0:
+            self.score = (self.correct_answers / self.total_questions) * 100
+        else:
+            self.score = 0.0
+        self.save()
+        return self.score
+    
+    def __str__(self):
+        return f"{self.student.email} - {self.lesson.title} - {self.score}%"
+
+
+class QuizConfiguration(models.Model):
+    """Quiz settings and configuration for lessons"""
+    GRADING_POLICY_CHOICES = [
+        ('highest', 'Highest Score'),
+        ('latest', 'Latest Attempt'),
+        ('average', 'Average Score'),
+        ('first', 'First Attempt'),
+    ]
+    
+    lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name='quiz_config')
+    time_limit = models.PositiveIntegerField(default=30, help_text="Time limit in minutes")
+    passing_score = models.PositiveIntegerField(default=70, help_text="Passing score percentage")
+    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum attempts allowed")
+    randomize_questions = models.BooleanField(default=False)
+    show_correct_answers = models.BooleanField(default=True)
+    grading_policy = models.CharField(max_length=20, choices=GRADING_POLICY_CHOICES, default='highest')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    class Meta:
+       
+        verbose_name_plural = "QuizConfiguration"
+    def __str__(self):
+        return f"Quiz Config - {self.lesson.title}"
+    
 class AssignmentLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="assignment")
     instructions = models.TextField(blank=True)
@@ -170,7 +276,10 @@ class AssignmentLesson(models.Model):
     word_limit = models.PositiveIntegerField(null=True, blank=True)
     allow_late_submission = models.BooleanField(default=True)
     late_deduction = models.FloatField(default=10.0)
-
+    
+    class Meta:
+       
+        verbose_name_plural = "AssignmentLesson"
 
 class ArticleLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="article")
@@ -178,14 +287,18 @@ class ArticleLesson(models.Model):
     estimated_read_time = models.PositiveIntegerField(default=0)
     attachments =  models.JSONField(default=list, blank=True)  # id, title, type, url/file
     external_links =  models.JSONField(default=list, blank=True)  # id, title, url, description
-
+    class Meta:
+       
+        verbose_name_plural = "ArticleLesson"
 
 class LessonResource(models.Model):
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="resources")
     title = models.CharField(max_length=200)
     type = models.CharField(max_length=50)
     file = models.FileField(upload_to='lesson_resources/', null=True, blank=True)  
-
+    class Meta:
+       
+        verbose_name_plural = "LessonResource"
 
 class Enrollment(models.Model):
     student = models.ForeignKey(
@@ -203,6 +316,7 @@ class Enrollment(models.Model):
     class Meta:
         unique_together = ['student', 'course']
         ordering = ['-enrolled_at']
+        verbose_name_plural = "Enrollment"
 
     def calculate_progress(self):
         """Calculate overall course progress based on lesson completions."""
@@ -232,6 +346,9 @@ class LessonProgress(models.Model):
         'Lesson', on_delete=models.CASCADE, related_name='student_progress', db_index=True
     )
     progress = models.FloatField(default=0.0)  # Lesson progress %
+    # The above code is a comment in Python. Comments are used to provide explanations or notes within
+    # the code for better understanding. In this case, the comment indicates that the code has been
+    # completed.
     completed = models.BooleanField(default=False)
     first_accessed = models.DateTimeField(auto_now_add=True)
     last_accessed = models.DateTimeField(auto_now=True)
@@ -241,7 +358,7 @@ class LessonProgress(models.Model):
     class Meta:
         unique_together = ['enrollment', 'lesson']
         ordering = ['lesson__order']
-
+        verbose_name_plural = "LessonProgress"
     def mark_completed(self, progress=100.0):
         self.progress = progress
         self.completed = True
@@ -270,7 +387,9 @@ class ResourceProgress(models.Model):
 
     class Meta:
         unique_together = ['lesson_progress', 'resource']
-        
+    
+       
+        verbose_name_plural = "ResourceProgress"
 
     def mark_completed(self):
         self.completed = True
@@ -293,7 +412,9 @@ class Certificate(models.Model):
     certificate_number = models.CharField(max_length=100, unique=True)
     issued_date = models.DateTimeField(auto_now_add=True)
     grade = models.CharField(max_length=2, default='A')  # A, B, C, etc.
-
+    class Meta:
+       
+        verbose_name_plural = "Certificate"
     def save(self, *args, **kwargs):
         if not self.certificate_number:
             course_prefix = (self.enrollment.course.title[:3].upper() if len(self.enrollment.course.title) >= 3 else 'CRS')
@@ -302,9 +423,365 @@ class Certificate(models.Model):
 
     def __str__(self):
         return f"Certificate {self.certificate_number} - {self.enrollment.student.email}"
+class CourseBadge(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='badges')
+    badge_type = models.CharField(max_length=20, blank=True,null=True)
+    awarded_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)  # Optional expiration date
+    is_active = models.BooleanField(default=True)
+    
+    # Metrics that led to this badge (optional, for record-keeping)
+    enrollment_count = models.IntegerField(null=True, blank=True)  # For bestseller/popular badges
+    average_rating = models.FloatField(null=True, blank=True)  # For top rated badges
+    view_count = models.IntegerField(null=True, blank=True)  # For trending badges
+    
+    class Meta:
+        unique_together = ['course', 'badge_type']  # One badge type per course
+        indexes = [
+            models.Index(fields=['course', 'badge_type']),
+            models.Index(fields=['badge_type', 'is_active']),
+        ]
+        
+       
+        verbose_name_plural = "LessonCourseBadge"
+    def __str__(self):
+        return f"{self.get_badge_type_display()} - {self.course.title}"
+
+class CourseQA(models.Model):
+    """Q&A section for courses where students can ask questions"""
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='qa_questions')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='course_questions')
+    
+    # Question content
+    question_title = models.CharField(max_length=200)
+    question_text = models.TextField()
+    
+    # Answer content
+    answer_text = models.TextField(blank=True)
+    answered_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='course_answers')
+    answered_at = models.DateTimeField(null=True, blank=True)
+    
+    # Status
+    is_answered = models.BooleanField(default=False)
+    is_pinned = models.BooleanField(default=False)  # Pin important questions
+    is_public = models.BooleanField(default=True)  # Make question visible to all students
+    
+    # Voting/Helpful system
+    helpful_votes = models.IntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-is_pinned', '-created_at']
+      
+       
+        verbose_name_plural = "CourseQA"
+    
+    def __str__(self):
+        return f"Q&A: {self.question_title} - {self.course.title}"
+
+class CourseResource(models.Model):
+    """Additional resources for courses (separate from lesson resources)"""
+    RESOURCE_TYPE_CHOICES = [
+        ('pdf', 'PDF'),
+        ('doc', 'Document'),
+        ('link', 'External Link'),
+        ('video', 'Video'),
+        ('image', 'Image'),
+        ('other', 'Other'),
+    ]
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='additional_resources')
+    
+    # Resource information
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    resource_type = models.CharField(max_length=20, choices=RESOURCE_TYPE_CHOICES, default='pdf')
+    
+    # File or URL
+    file = models.FileField(upload_to='course_resources/', null=True, blank=True)
+    url = models.URLField(blank=True)
+    
+    # Organization
+    category = models.CharField(max_length=100, blank=True, help_text="e.g., 'Reference Materials', 'Additional Reading'")
+    order = models.PositiveIntegerField(default=0)
+    
+    # Access control
+    is_public = models.BooleanField(default=True)  # Visible to all enrolled students
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']
+        
+       
+        verbose_name_plural = "Course Resources"
+    
+    def __str__(self):
+        return f"{self.title} - {self.course.title}"
 
 
+class CourseAnnouncement(models.Model):
+    """Course announcements from instructors"""
+    PRIORITY_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ]
+    
 
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='announcements')
+    instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='course_announcements')
+    
+    # Announcement content
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
+    
+    # Scheduling
+    published_at = models.DateTimeField(null=True, blank=True)
+    scheduled_for = models.DateTimeField(null=True, blank=True)
+    
+    # Status
+    is_published = models.BooleanField(default=True)
+    is_pinned = models.BooleanField(default=False)
+    send_notification = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-is_pinned', '-published_at', '-created_at']
+       
+       
+        verbose_name_plural = "Course Announcement"
+    
+    def __str__(self):
+        return f"Announcement: {self.title} - {self.course.title}"
+
+
+class CheckpointQuizResponse(models.Model):
+    """Student responses to checkpoint quizzes embedded in video/text lessons"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='checkpoint_responses')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='checkpoint_responses')
+    
+    # Response data
+    selected_answer_index = models.IntegerField()  # Index of selected answer
+    is_correct = models.BooleanField(default=False)
+    
+    # Timing
+    responded_at = models.DateTimeField(auto_now_add=True)
+    time_taken = models.DurationField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = ['student', 'lesson']  # One response per student per lesson
+        ordering = ['-responded_at']
+        
+       
+        verbose_name_plural = "Check Point Response"
+    
+    def __str__(self):
+        return f"{self.student.email} - {self.lesson.title} - {'Correct' if self.is_correct else 'Incorrect'}"
+
+ 
+
+class VideoCheckpointQuiz(models.Model):
+    """Individual checkpoint quiz questions that appear at specific times during video playback"""
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+    ]
+    
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='video_checkpoint_quizzes')
+    
+    # Question details
+    question_text = models.TextField()
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    options = models.JSONField(default=list, help_text="List of answer options")
+    correct_answer_index = models.IntegerField(help_text="Index of correct answer (0-based)")
+    explanation = models.TextField(blank=True, help_text="Explanation shown after answering")
+    
+    # Video timing
+    timestamp_seconds = models.IntegerField(help_text="Time in seconds when quiz should appear")
+    
+    # Display settings
+    title = models.CharField(max_length=200, blank=True, help_text="Optional title for the checkpoint quiz")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['timestamp_seconds']
+        unique_together = ['lesson', 'timestamp_seconds']  # One quiz per timestamp per lesson
+        
+       
+        verbose_name_plural = "Video Check point Quiz"
+    
+    def __str__(self):
+        return f"{self.lesson.title} - Checkpoint at {self.timestamp_seconds}s"
+
+
+class VideoCheckpointResponse(models.Model):
+    """Student responses to video checkpoint quizzes"""
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='video_checkpoint_responses')
+    checkpoint_quiz = models.ForeignKey(VideoCheckpointQuiz, on_delete=models.CASCADE, related_name='responses')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='video_checkpoint_responses')
+    
+    # Response data
+    selected_answer_index = models.IntegerField()  # Index of selected answer
+    is_correct = models.BooleanField(default=False)
+    
+    # Timing
+    responded_at = models.DateTimeField(auto_now_add=True)
+    time_taken = models.DurationField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = ['student', 'checkpoint_quiz']  # One response per student per checkpoint
+        ordering = ['-responded_at']
+    
+       
+        verbose_name_plural = "Video Checkpoint Responses"
+    
+    def save(self, *args, **kwargs):
+        # Auto-calculate if answer is correct
+        if self.checkpoint_quiz and hasattr(self.checkpoint_quiz, 'correct_answer_index'):
+            self.is_correct = self.selected_answer_index == self.checkpoint_quiz.correct_answer_index
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.student.email} - {self.checkpoint_quiz.lesson.title} checkpoint"
+
+
+class CourseRating(models.Model):
+    """Student ratings and reviews for courses"""
+    RATING_CHOICES = [
+        (1, '1 Star'),
+        (2, '2 Stars'),
+        (3, '3 Stars'),
+        (4, '4 Stars'),
+        (5, '5 Stars'),
+    ]
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='ratings')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='course_ratings')
+    enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE, related_name='rating', null=True, blank=True)
+    
+    # Rating data
+    rating = models.IntegerField(choices=RATING_CHOICES)
+    review_title = models.CharField(max_length=200, blank=True)
+    review_text = models.TextField(blank=True)
+    
+    # Specific rating aspects
+    content_quality = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    instructor_quality = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    difficulty_level = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    value_for_money = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    
+    # Review metadata
+    is_public = models.BooleanField(default=True)
+    is_verified_purchase = models.BooleanField(default=False)  # Based on enrollment
+    helpful_votes = models.IntegerField(default=0)
+    
+    # Moderation
+    is_approved = models.BooleanField(default=True)
+    moderated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='moderated_ratings')
+    moderation_notes = models.TextField(blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['course', 'student']  # One rating per student per course
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['course', 'rating']),
+            models.Index(fields=['course', 'is_public', 'is_approved']),
+        ]
+      
+       
+        verbose_name_plural = "Course Rating"
+    
+    def save(self, *args, **kwargs):
+        # Set verified purchase based on enrollment
+        if self.enrollment or Enrollment.objects.filter(course=self.course, student=self.student).exists():
+            self.is_verified_purchase = True
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.student.email} - {self.course.title} - {self.rating} stars"
+
+
+class Conversation(models.Model):
+    """Conversation between teacher and student"""
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teacher_conversations')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='student_conversations')
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='conversations', null=True, blank=True)
+    
+    # Conversation metadata
+    subject = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Last message info for sorting
+    last_message_at = models.DateTimeField(auto_now_add=True)
+    last_message_sender = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='last_message_conversations')
+    
+    class Meta:
+        unique_together = ['teacher', 'student']  # One conversation per teacher-student pair
+        ordering = ['-last_message_at']
+     
+       
+        verbose_name_plural = "Conversation "
+    def __str__(self):
+        course_name = self.course.title if self.course else "General"
+        return f"{self.teacher.get_full_name()} - {self.student.get_full_name()} - {course_name}"
+
+
+class Message(models.Model):
+    """Individual message in a conversation"""
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_messages')
+    receiver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_messages')
+    
+    # Message content
+    content = models.TextField()
+    message_type = models.CharField(max_length=20, choices=[
+        ('text', 'Text'),
+        ('assignment_question', 'Assignment Question'),
+        ('course_question', 'Course Question'),
+        ('general', 'General'),
+    ], default='text')
+    
+    # Message metadata
+    sent_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    is_read = models.BooleanField(default=False)
+    
+    # Optional reference to course content
+    related_lesson = models.ForeignKey(Lesson, on_delete=models.SET_NULL, null=True, blank=True, related_name='related_messages')
+    class Meta:
+        ordering = ['sent_at']
+     
+       
+        verbose_name_plural = "Message"
+    def save(self, *args, **kwargs):
+        # Update conversation's last message info
+        super().save(*args, **kwargs)
+        self.conversation.last_message_at = self.sent_at
+        self.conversation.last_message_sender = self.sender
+        self.conversation.save()
+        
+    def mark_as_read(self):
+        """Mark message as read"""
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save()
+    
+    def __str__(self):
+        return f"{self.sender.get_full_name()} to {self.receiver.get_full_name()} - {self.sent_at.strftime('%Y-%m-%d %H:%M')}"
 
 
 

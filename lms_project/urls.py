@@ -2,7 +2,7 @@ from django.urls import path, re_path
 from django.contrib import admin
 from django.urls import path,include
 from django.conf.urls.static import static
-from courses.course_lesson import CourseViewSet
+
 from user_managment.views import *
 from courses.views import *
 from courses.constants import *
@@ -18,10 +18,33 @@ router = DefaultRouter()
 """ structure Routes """
 # setting
 
-course_with_lessons = CourseViewSet.as_view({"get": "with_lessons"})
+
 
 router = DefaultRouter()           
-for name in ["category", "level",  "course", "module", "lesson", "enrollment",'videolesson','quizlesson','assignmentlesson','articleLesson','lessonresource',]:
+for name in [
+    "category",
+    "level",
+    "course",
+    "module",
+    "lesson",
+    "enrollment",
+    "videolesson",
+    "quizlesson",
+    "assignmentlesson",
+    "articleLesson",
+    "lessonresource",
+    "Certificate",
+    "CourseBadge",
+    "CourseQA",
+    "CourseResource",
+    "CourseAnnouncement",
+    "CheckpointQuizResponse",
+    "VideoCheckpointQuiz",
+    "VideoCheckpointResponse",
+    "CourseRating",
+    "Conversation",
+    "Message",
+]:
     router.register(name, GenericModelViewSet, basename=name)
 
 
@@ -41,7 +64,7 @@ urlpatterns = [
     re_path("api/constants/", constants_view, name="constants"),
     # /courses/1/with-lessons/
 
-   re_path(r"^api/coursewithlesson/(?P<pk>\d+)/with-lessons/$", course_with_lessons, name="course-with-lessons"),
+#    re_path(r"^api/coursewithlesson/(?P<pk>\d+)/with-lessons/$", course_with_lessons, name="course-with-lessons"),
      
     # re_path(r'^api/(?P<model_name>\w+)/list/?$', GenericListAPIView.as_view(), name='generic-list'),
     # re_path(r'^api/(?P<model_name>\w+)/search/?$', GenericListAPIView.as_view(), name='generic-list'),
