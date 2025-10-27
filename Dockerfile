@@ -1,5 +1,5 @@
 # Use a specific version of Python
-# FROM python:3.12-slim
+FROM python:3.12-slim
 
 # # Set the working directory in the container
 # WORKDIR /app
@@ -21,7 +21,7 @@
 
 # # Define the command to start the app
 # CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
-FROM python:3
+# FROM python:3
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 WORKDIR /code

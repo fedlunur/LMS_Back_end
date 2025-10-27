@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.db.models.signals import post_save # helps 
 from django.contrib.auth.models import AbstractUser
@@ -68,12 +69,24 @@ class User(AbstractUser):
     USERNAME_FIELD = 'email'  # Use phone as the username
     REQUIRED_FIELDS = ['first_name',]
     objects = UserManager()
-
+   
     def save(self, *args, **kwargs):
-        
-        if not self.password:   
-            self.set_password("changeme")  # Use set_password to hash the default password
-        super().save(*args, **kwargs)  
+    # Generate a unique username if not set
+        if not self.username:
+            base_username = self.email.split('@')[0]
+            username = base_username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
+            self.username = username
+
+        # Set default password if not set
+        if not self.password:
+            self.set_password("changeme")
+
+        super().save(*args, **kwargs)
+
 
     def __str__(self):
         return f'{self.first_name}'
@@ -104,6 +117,3 @@ class UserLog(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.action} at {self.timestamp}"
-   
-    
-    
