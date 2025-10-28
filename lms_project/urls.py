@@ -44,6 +44,7 @@ for name in [
     "CourseRating",
     "Conversation",
     "Message",
+    'NewModel'
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 
@@ -62,16 +63,8 @@ urlpatterns = [
     # Generics
     re_path("api/", include(router.urls)),
     re_path("api/constants/", constants_view, name="constants"),
-    # /courses/1/with-lessons/
-
-#    re_path(r"^api/coursewithlesson/(?P<pk>\d+)/with-lessons/$", course_with_lessons, name="course-with-lessons"),
-     
-    # re_path(r'^api/(?P<model_name>\w+)/list/?$', GenericListAPIView.as_view(), name='generic-list'),
-    # re_path(r'^api/(?P<model_name>\w+)/search/?$', GenericListAPIView.as_view(), name='generic-list'),
-    #  re_path(r'^api/(?P<model_name>\w+)/advanced-list/?$', advanced_list, name='advanced-paginated-list'),
   
-     # re_path(r'^api/download/(?P<image_type>[A-Za-z0-9_]+)/(?P<file_path>.+)$', download_file, name='download_file'),
-] 
+    ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns +=  static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)   

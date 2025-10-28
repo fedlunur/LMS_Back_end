@@ -112,3 +112,5 @@ def handle_course_create_or_update(request, serializer_class, get_serializer):
             {"success": False, "message": f"Failed to create or update course: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+

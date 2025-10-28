@@ -8,6 +8,7 @@ from user_managment.models import User
 from .choices import *
 from django.contrib.postgres.fields import ArrayField,JSONField
 from django.utils.text import slugify
+
 class Category(models.Model):
     name = models.CharField(max_length=120, unique=True)
     slug = models.SlugField(max_length=140, unique=True, blank=True)
@@ -57,11 +58,6 @@ class Course(models.Model):
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
     issue_certificate=models.BooleanField(default=False)
-    # Moderation flags
-    # is_flagged = models.BooleanField(default=False)
-    # flagged_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="flagged_courses")
-    # flagged_at = models.DateTimeField(null=True, blank=True)
-    # flag_reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -429,7 +425,6 @@ class CourseBadge(models.Model):
     awarded_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # Optional expiration date
     is_active = models.BooleanField(default=True)
-    
     # Metrics that led to this badge (optional, for record-keeping)
     enrollment_count = models.IntegerField(null=True, blank=True)  # For bestseller/popular badges
     average_rating = models.FloatField(null=True, blank=True)  # For top rated badges

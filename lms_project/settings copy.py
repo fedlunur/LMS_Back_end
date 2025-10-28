@@ -25,17 +25,23 @@ DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 #ALLOWED_HOSTS = ['localhost','127.0.0.1','188.245.105.29','10.0.2.2','185.65.245.140']
 ALLOWED_HOSTS = ['*']
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.getenv('DB_NAME', 'lms'),
+#         'USER': os.getenv('DB_USER', 'lms'),
+#         'PASSWORD': os.getenv('DB_PASSWORD', 'lms'),
+#         'HOST': os.getenv('DB_HOST', 'db'),  # 'db' to match docker-compose service name
+#         'PORT': os.getenv('DB_PORT', '5432'),
+#     }
+# }
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'lms'),
-        'USER': os.getenv('DB_USER', 'lms'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'lms'),
-        'HOST': os.getenv('DB_HOST', 'db'),  # 'db' to match docker-compose service name
-        'PORT': os.getenv('DB_PORT', '5432'),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
 }
-
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 

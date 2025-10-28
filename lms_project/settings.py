@@ -24,25 +24,27 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
 #ALLOWED_HOSTS = ['*']
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.getenv('DB_NAME', 'lms'),
+#         'USER': os.getenv('DB_USER', 'lms'),
+#         'PASSWORD': os.getenv('DB_PASSWORD', 'lms'),
+#         'HOST': os.getenv('DB_HOST', 'db'),  # 'db' to match docker-compose service name
+#         'PORT': os.getenv('DB_PORT', '5432'),
+#     }
+# }
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'lms'),
-        'USER': os.getenv('DB_USER', 'lms'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'lms'),
-        'HOST': os.getenv('DB_HOST', 'db'),  # 'db' to match docker-compose service name
-        'PORT': os.getenv('DB_PORT', '5432'),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
 }
-
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
-
-
 
 # Application definition
 
@@ -56,7 +58,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
-    'channels',
+     # 'channels',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',  # Enable CORS handling
     'user_managment',
@@ -119,11 +121,13 @@ TEMPLATES = [
         },
     },
 ]
+WSGI_APPLICATION = 'wsgi.application'
+# WSGI_APPLICATION = 'lms_project.wsgi.application'
 
-WSGI_APPLICATION = "lms_project.wsgi.application"
+# for the docker just uncomment the below 
+# ASGI_APPLICATION = 'backend.asgi.application'
+# WSGI_APPLICATION = 'backend.wsgi.application'
 
-ASGI_APPLICATION = 'backend.asgi.application'
-WSGI_APPLICATION = 'backend.wsgi.application'
 # CORS_ALLOW_HEADERS = [
 #     'authorization',
 #     'content-type',
