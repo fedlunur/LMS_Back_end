@@ -15,7 +15,7 @@ model_mapping = {
           # User managment
         'user':User,
         'role': Role,
-         "category": Category,
+        "category": Category,
         "level": Level,
         "course": Course,
         "module": Module,
@@ -38,9 +38,12 @@ model_mapping = {
         "courserating": CourseRating,
         "conversation": Conversation,
         "message": Message,
-      
-     
-  
+
+        #--------------------------
+        # others
+        #--------------------------
+        "faq": FAQ,
+
     }
 # for any model exclude fileds 
 donot_include_fields = {

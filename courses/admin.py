@@ -127,7 +127,8 @@ class ResourceProgressAdmin(admin.ModelAdmin):
         "lesson_progress", "resource", "completed", "accessed_at", "completed_at"
     )
     list_filter = ("completed", "accessed_at")
-    search_fields = ("lesson_progress__enrollment__student__email", "resource__name")
+    # LessonResource uses `title` (not `name`) — search on `resource__title` instead
+    search_fields = ("lesson_progress__enrollment__student__email", "resource__title")
     readonly_fields = ("accessed_at", "completed_at")
 
 
@@ -249,3 +250,11 @@ class QuizConfigurationAdmin(admin.ModelAdmin):
     search_fields = ("lesson__title",)    
     
 
+# ----------------------------
+# Other Utility Models
+# ----------------------------  
+@admin.register(FAQ)
+class FAQAdmin(admin.ModelAdmin):
+    list_display = ("id", "question", "answer", "order", "is_active")
+    list_filter = ("is_active",)
+    search_fields = ("question", "answer")

@@ -44,6 +44,11 @@ for name in [
     "CourseRating",
     "Conversation",
     "Message",
+
+    #--------------------------
+    # Other Endpoints
+    #--------------------------
+    "faq",
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 

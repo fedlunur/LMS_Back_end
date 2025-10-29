@@ -43,8 +43,13 @@ class Level(models.Model):
 
 class Course(models.Model):
     title = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=220, null=True, blank=True)
+    subtitle = models.CharField(max_length=200, blank=True)
+    slug = models.SlugField(max_length=200, unique=True, blank=True, null=True)
     description = models.TextField(blank=True)
+    objectives = models.JSONField(default=list, blank=True, null=True, help_text="List of course objectives or goals.")
+    what_you_will_learn = models.JSONField(default=list, blank=True, null=True, help_text="List of bullet points about what users will learn.")
+    requirements = models.JSONField(default=list, blank=True, null=True, help_text="List of course requirements or prerequisites.") 
+
     category = models.ForeignKey(
         Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="courses"
     )
@@ -53,6 +58,7 @@ class Course(models.Model):
     thumbnail = models.ImageField(upload_to="course_thumbnails/", null=True, blank=True)
     instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name="courses")
     status = models.CharField(max_length=10,choices=STATUS_CHOICES,default="draft")
+
     # Approval / moderation
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_courses")
     approved_at = models.DateTimeField(null=True, blank=True)
@@ -64,6 +70,9 @@ class Course(models.Model):
     # flagged_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="flagged_courses")
     # flagged_at = models.DateTimeField(null=True, blank=True)
     # flag_reason = models.TextField(blank=True)
+
+    course_faq = models.ForeignKey('FAQ', on_delete=models.CASCADE, related_name="courses" , null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -404,7 +413,21 @@ class ResourceProgress(models.Model):
         return self
 
     def __str__(self):
-        return f"{self.lesson_progress.enrollment.student.email} - {self.resource.name}"
+        # LessonResource does not have a `name` field in this schema — use `title` when available,
+        # otherwise fall back to the file name or the resource id to avoid AttributeError in admin.
+        try:
+            resource_name = getattr(self.resource, 'title', None)
+            if not resource_name:
+                file_field = getattr(self.resource, 'file', None)
+                if file_field:
+                    # FileField/file object: prefer its name
+                    resource_name = getattr(file_field, 'name', None) or str(self.resource.id)
+                else:
+                    resource_name = str(self.resource.id)
+        except Exception:
+            resource_name = str(getattr(self.resource, 'id', 'resource'))
+
+        return f"{self.lesson_progress.enrollment.student.email} - {resource_name}"
 
 
 class Certificate(models.Model):
@@ -837,3 +860,21 @@ class Message(models.Model):
 
 
 
+class FAQ(models.Model):
+    """Frequently Asked Questions """
+    
+    question = models.TextField(max_length=500, help_text="The frequently asked question")
+    answer = models.TextField(max_length=1000, help_text="The answer to the frequently asked question")
+
+    order = models.PositiveIntegerField(default=0, help_text="Order of appearance in FAQ list")
+    is_active = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']       
+        verbose_name_plural = "Course FAQ"
+    
+    def __str__(self):
+        return f"FAQ: {self.question[:50]}"
