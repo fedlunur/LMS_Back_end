@@ -425,29 +425,78 @@ class Certificate(models.Model):
 
     def __str__(self):
         return f"Certificate {self.certificate_number} - {self.enrollment.student.email}"
+    
+
+# class CourseBadge(models.Model):
+#     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='badges')
+#     badge_type = models.CharField(max_length=20, blank=True,null=True)
+#     awarded_at = models.DateTimeField(auto_now_add=True)
+#     expires_at = models.DateTimeField(null=True, blank=True)  # Optional expiration date
+#     is_active = models.BooleanField(default=True)
+    
+#     # Metrics that led to this badge (optional, for record-keeping)
+#     enrollment_count = models.IntegerField(null=True, blank=True)  # For bestseller/popular badges
+#     average_rating = models.FloatField(null=True, blank=True)  # For top rated badges
+#     view_count = models.IntegerField(null=True, blank=True)  # For trending badges
+    
+#     class Meta:
+#         unique_together = ['course', 'badge_type']  # One badge type per course
+#         indexes = [
+#             models.Index(fields=['course', 'badge_type']),
+#             models.Index(fields=['badge_type', 'is_active']),
+#         ]
+        
+       
+#         verbose_name_plural = "LessonCourseBadge"
+#     def __str__(self):
+#         return f"{self.get_badge_type_display()} - {self.course.title}"
+
+
+
 class CourseBadge(models.Model):
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='badges')
-    badge_type = models.CharField(max_length=20, blank=True,null=True)
+    class BadgeType(models.TextChoices):
+        RISING_STAR = 'rising_star', 'Rising Star'           # New but fast-growing course
+        TOP_RATED = 'top_rated', 'Top Rated'                 # Consistently high reviews
+        TRENDING_NOW = 'trending_now', 'Trending Now'        # Gaining fast popularity
+        MASTERCLASS = 'masterclass', 'Masterclass'           # Expert-level, premium quality
+        STUDENT_FAVORITE = 'student_favorite', 'Student Favorite'  # Most-loved by students
+        IMPACT_AWARD = 'impact_award', 'Impact Award'        # Inspiring or transformational
+        LEGENDARY = 'legendary', 'Legendary Course'          # Long-term excellence and legacy
+
+    course = models.ForeignKey('Course', on_delete=models.CASCADE, related_name='badges')
+    badge_type = models.CharField(max_length=30, choices=BadgeType.choices, blank=True, null=True, default=BadgeType.RISING_STAR)
     awarded_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # Optional expiration date
     is_active = models.BooleanField(default=True)
-    
-    # Metrics that led to this badge (optional, for record-keeping)
-    enrollment_count = models.IntegerField(null=True, blank=True)  # For bestseller/popular badges
-    average_rating = models.FloatField(null=True, blank=True)  # For top rated badges
-    view_count = models.IntegerField(null=True, blank=True)  # For trending badges
-    
+
+    # Optional metrics (for analytics or auto-awarding)
+    enrollment_count = models.IntegerField(null=True, blank=True)
+    average_rating = models.FloatField(null=True, blank=True)
+    view_count = models.IntegerField(null=True, blank=True)
+
     class Meta:
-        unique_together = ['course', 'badge_type']  # One badge type per course
+        unique_together = ['course', 'badge_type']
         indexes = [
             models.Index(fields=['course', 'badge_type']),
             models.Index(fields=['badge_type', 'is_active']),
         ]
-        
-       
-        verbose_name_plural = "LessonCourseBadge"
+        verbose_name_plural = "LessonCourseBadges"
+
+    def get_badge_type_display(self):
+        try:
+            # Prefer the TextChoices mapping if available
+            if hasattr(self, 'BadgeType') and getattr(self, 'badge_type', None) is not None:
+                return dict(self.BadgeType.choices).get(self.badge_type, self.badge_type)
+            # Fallback to field choices
+            field = self._meta.get_field('badge_type')
+            choices = dict(field.choices) if getattr(field, 'choices', None) else {}
+            return choices.get(self.badge_type, self.badge_type or '')
+        except Exception:
+            return self.badge_type or ''
+
     def __str__(self):
-        return f"{self.get_badge_type_display()} - {self.course.title}"
+        display = self.get_badge_type_display() or 'Badge'
+        return f"{display} - {self.course.title}"
 
 class CourseQA(models.Model):
     """Q&A section for courses where students can ask questions"""
