@@ -7,6 +7,7 @@ from user_managment.views import *
 from courses.views import *
 from courses.constants import *
 from django.urls import path, include
+from courses.course_access import *
 from rest_framework.routers import DefaultRouter
 from django.conf import settings
 from rest_framework_simplejwt.views import (
@@ -63,7 +64,9 @@ urlpatterns = [
     # Generics
     re_path("api/", include(router.urls)),
     re_path("api/constants/", constants_view, name="constants"),
-  
+    # password change 
+    re_path(r'^api/change-password/', PasswordChangeView.as_view(), name='change-password'),
+    re_path("api/counts/", get_counts, name="counts"),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

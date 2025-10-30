@@ -259,3 +259,46 @@ class UserView(APIView):
         serializer = UserSerializer(request.user)
         return Response({'user': serializer.data}, status=status.HTTP_200_OK)
 
+
+class PasswordChangeSerializer(serializers.Serializer):
+    old_password = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True)
+    confirm_password = serializers.CharField(required=True)
+
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError("New passwords do not match.")
+        return data
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Old password is incorrect.")
+        return value
+
+    def save(self, **kwargs):
+        user = self.context['request'].user
+        user.set_password(self.validated_data['new_password'])
+        user.save()
+        return user    
+   
+ 
+class PasswordChangeView(generics.UpdateAPIView):
+
+    serializer_class = PasswordChangeSerializer
+    model = User
+    def get_object(self, queryset=None):
+        return self.request.user
+
+    def update(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            # Change the password
+            self.object.set_password(serializer.validated_data['new_password'])
+            self.object.save()
+            return Response({'Success': True,'data':serializer.data,'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
+           
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)    
+
