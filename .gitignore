@@ -11,3 +11,8 @@ data/*
 media/*
 .gitignore
 data/
+docker-compose.yml
+dockerfile
+requirments.txt
+.env
+
