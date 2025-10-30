@@ -10,3 +10,4 @@ templates/*
 data/*
 media/*
 .gitignore
+data/
