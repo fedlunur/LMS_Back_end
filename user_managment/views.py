@@ -119,13 +119,15 @@ class UserRegister(APIView):
             raise ValidationError({"password": ["Password must be at least 3 characters."]})
 
         # Append a default role if not provided
-        if "role" not in data or not data["role"]:
-            from .models import Role  # Import inside the function to avoid circular import
-            default_role = Role.objects.first()  # Get the first available role
-            if default_role:
-                data["role"] = default_role.id
-            else:
-                raise ValidationError({"role": ["No role found. Please create a role first."]})
+        # if "role" not in data or not data["role"]:
+        #     from .models import Role  # Import inside the function to avoid circular import
+        #     default_role = Role.objects.first()  # Get the first available role
+        #     if default_role:
+        #         data["role"] = default_role.id
+        #     else:
+        #         raise ValidationError({"role": ["No role found. Please create a role first."]})
+
+        # The serializer will handle role creation, so we don't need to validate it here.
 
         return data
 
