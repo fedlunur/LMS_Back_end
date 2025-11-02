@@ -5,7 +5,8 @@ from rest_framework.response import Response
 from django.utils import timezone 
 from rest_framework.pagination import PageNumberPagination
 from user_managment.models import User
-from .models import Level,Category,Course
+from .models import Enrollment, LessonProgress, Lesson, Module
+
 def success_response(self, data, message, status_code=status.HTTP_200_OK):
         return Response({
             'success': True,
@@ -112,5 +113,173 @@ def handle_course_create_or_update(request, serializer_class, get_serializer):
             {"success": False, "message": f"Failed to create or update course: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+def is_lesson_accessible(user, lesson):
+    """
+    Check if a lesson is accessible for the given user.
+    A lesson is accessible if:
+    - User is enrolled in the course
+    - It's the first lesson, or the previous lesson is completed
+    """
+    if not user.is_authenticated:
+        return False
+    
+    try:
+        enrollment = Enrollment.objects.get(student=user, course=lesson.course)
+    except Enrollment.DoesNotExist:
+        return False
+    
+    # Check payment status
+    if enrollment.payment_status != 'completed':
+        return False
+    
+    # First lesson is always accessible
+    first_lesson = Lesson.objects.filter(course=lesson.course).order_by('order').first()
+    if lesson == first_lesson:
+        return True
+    
+    # Find previous lesson
+    previous_lesson = Lesson.objects.filter(
+        course=lesson.course,
+        order__lt=lesson.order
+    ).order_by('-order').first()
+    
+    if not previous_lesson:
+        return True  # Should not happen, but safeguard
+    
+    # Check if previous lesson is completed
+    try:
+        progress = LessonProgress.objects.get(enrollment=enrollment, lesson=previous_lesson)
+        return progress.completed
+    except LessonProgress.DoesNotExist:
+        return False
+
+def is_module_accessible(user, module):
+    """
+    Check if a module is accessible for the given user.
+    A module is accessible if:
+    - User is enrolled in the course
+    - It's the first module, or all lessons in the previous module are completed
+    """
+    if not user.is_authenticated:
+        return False
+    
+    try:
+        enrollment = Enrollment.objects.get(student=user, course=module.course)
+    except Enrollment.DoesNotExist:
+        return False
+    
+    # Check payment status
+    if enrollment.payment_status != 'completed':
+        return False
+    
+    # First module is always accessible
+    first_module = Module.objects.filter(course=module.course).order_by('order').first()
+    if module == first_module:
+        return True
+    
+    # Find previous module
+    previous_module = Module.objects.filter(
+        course=module.course,
+        order__lt=module.order
+    ).order_by('-order').first()
+    
+    if not previous_module:
+        return True  # Safeguard
+    
+    # Check if all lessons in previous module are completed
+    previous_lessons = previous_module.lessons.all()
+    for lesson in previous_lessons:
+        try:
+            progress = LessonProgress.objects.get(enrollment=enrollment, lesson=lesson)
+            if not progress.completed:
+                return False
+        except LessonProgress.DoesNotExist:
+            return False
+    return True
+
+def enroll_user_in_course(user, course):
+    """
+    Handle user enrollment in a course.
+    For free courses: enroll immediately with payment_status='completed'.
+    For paid courses: require payment (future implementation), set payment_status='pending'.
+    """
+    if course.price > 0:
+        # Future: Check payment status
+        # For now, create enrollment with pending payment
+        enrollment, created = Enrollment.objects.get_or_create(
+            student=user,
+            course=course,
+            defaults={
+                'progress': 0.0,
+                'payment_status': 'pending'
+            }
+        )
+        if not created:
+            return False, "Enrollment already exists."
+        return False, "Payment required for this course. Enrollment created with pending payment status."
+    
+    # Free course: enroll immediately
+    if Enrollment.objects.filter(student=user, course=course).exists():
+        return False, "Already enrolled in this course."
+    
+    enrollment = Enrollment.objects.create(
+        student=user,
+        course=course,
+        progress=0.0,
+        payment_status='completed'
+    )
+    enrollment.calculate_progress()
+    return True, "Successfully enrolled in the course."
+
+def complete_payment(enrollment_id):
+    """
+    Mark payment as completed for an enrollment.
+    This function can be called from payment webhooks or admin actions in the future.
+    """
+    try:
+        enrollment = Enrollment.objects.get(id=enrollment_id)
+        if enrollment.payment_status == 'completed':
+            return False, "Payment already completed."
+        
+        enrollment.payment_status = 'completed'
+        enrollment.save()
+        enrollment.calculate_progress()
+        return True, "Payment completed successfully. Enrollment is now active."
+    except Enrollment.DoesNotExist:
+        return False, "Enrollment not found."
+
+def mark_lesson_completed(user, lesson_id):
+    """
+    Mark a lesson as completed for the user.
+    Updates lesson progress and cascades to enrollment progress.
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        enrollment = Enrollment.objects.get(student=user, course=lesson.course)
+        
+        if enrollment.payment_status != 'completed':
+            return False, "Payment not completed for this course."
+        
+        # Check if lesson is accessible
+        if not is_lesson_accessible(user, lesson):
+            return False, "Lesson is not accessible yet."
+        
+        # Get or create lesson progress
+        progress, created = LessonProgress.objects.get_or_create(
+            enrollment=enrollment,
+            lesson=lesson,
+            defaults={'progress': 0.0}
+        )
+        
+        # Mark as completed
+        progress.mark_completed(100.0)
+        
+        return True, "Lesson marked as completed successfully."
+    
+    except Lesson.DoesNotExist:
+        return False, "Lesson not found."
+    except Enrollment.DoesNotExist:
+        return False, "You are not enrolled in this course."
 
 

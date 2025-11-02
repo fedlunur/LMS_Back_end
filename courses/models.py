@@ -6,8 +6,8 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from user_managment.models import User 
 from .choices import *
-from django.contrib.postgres.fields import ArrayField,JSONField
 from django.utils.text import slugify
+import string, random 
 
 class Category(models.Model):
     name = models.CharField(max_length=120, unique=True)
@@ -79,6 +79,32 @@ class Course(models.Model):
             and not self.hidden_from_students
             and not self.is_flagged
         )
+
+    @property
+    def total_lessons(self):
+        return self.lessons.count()
+
+    @property
+    def total_duration(self):
+        from datetime import timedelta
+        total = sum((lesson.duration for lesson in self.lessons.all() if lesson.duration), timedelta())
+        hours = total.seconds // 3600
+        minutes = (total.seconds % 3600) // 60
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        else:
+            return f"{minutes}m"
+
+    @property
+    def average_rating(self):
+        ratings = self.ratings.all()
+        if ratings:
+            return round(sum(r.rating for r in ratings) / len(ratings), 1)
+        return 0.0
+
+    @property
+    def total_reviews(self):
+        return self.ratings.count()
 
 
 class Module(models.Model):
@@ -261,7 +287,9 @@ class QuizConfiguration(models.Model):
 class AssignmentLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="assignment")
     instructions = models.TextField(blank=True)
-    submission_types = ArrayField(models.CharField(max_length=10), default=list, blank=True)  # ["file", "text"]
+    tasks = models.JSONField(default=list, blank=True, help_text='List of tasks for the assignment')
+    # Use JSONField (list) instead of Postgres ArrayField for cross-DB compatibility.
+    submission_types = models.JSONField(default=list, blank=True, help_text='List of submission types, e.g. ["file", "text"]')
     due_date = models.DateTimeField(null=True, blank=True)
     due_days = models.PositiveIntegerField(null=True, blank=True)
     max_score = models.FloatField(default=100)
@@ -308,6 +336,15 @@ class Enrollment(models.Model):
     last_accessed = models.DateTimeField(auto_now=True)
     completed = models.BooleanField(default=False)
     completed_at = models.DateTimeField(null=True, blank=True)
+    payment_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('completed', 'Completed'),
+            ('pending', 'Pending'),
+            ('failed', 'Failed'),
+        ],
+        default='completed'  # Default to completed for free courses
+    )
 
     class Meta:
         unique_together = ['student', 'course']
@@ -329,6 +366,18 @@ class Enrollment(models.Model):
 
         self.save(update_fields=['progress', 'completed', 'completed_at'])
         return self.progress
+
+    @property
+    def is_enrolled(self):
+        return True
+
+    @property
+    def is_unlocked(self):
+        return self.payment_status == 'completed'
+
+    @property
+    def completed_lessons_count(self):
+        return self.lesson_progress.filter(completed=True).count()
 
     def __str__(self):
         return f"{self.student.email} - {self.course.title}"

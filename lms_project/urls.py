@@ -60,6 +60,7 @@ urlpatterns = [
     re_path(r'^api/register/?$', UserRegister.as_view(), name='register'),
     re_path(r'^api/login/?$', UserLogin.as_view(), name='login'),
     re_path(r'^api/user_logout/?$', UserLogout.as_view(), name='user_logout'),
+    re_path(r'^api/mark-lesson-completed/(?P<lesson_id>\d+)/$', mark_lesson_completed_view, name='mark_lesson_completed'),
     # Generics
     re_path("api/", include(router.urls)),
     re_path("api/constants/", constants_view, name="constants"),

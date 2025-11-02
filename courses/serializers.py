@@ -43,6 +43,12 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
 
         super().__init__(*args, **kwargs)
 
+        # Add model properties as read-only fields
+        for attr_name in dir(model):
+            attr = getattr(model, attr_name, None)
+            if isinstance(attr, property):
+                self.fields[attr_name] = serializers.ReadOnlyField()
+
         def nest_foreign_keys(current_model, depth=0, max_depth=3):
             """
             Recursively create nested serializers for ForeignKey fields

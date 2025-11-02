@@ -56,7 +56,7 @@ class User(AbstractUser):
     first_name = models.CharField(max_length=255, null=False)
     middle_name = models.CharField(max_length=255, null=True, blank=True)
     last_name = models.CharField(max_length=255, null=True, blank=True)
-    phone = models.CharField(max_length=20, unique=True)
+    phone = models.CharField(max_length=20, unique=True, null=True, blank=True)
     email= models.EmailField( max_length=254,unique=True)
     photo = models.CharField(max_length=255, blank=True, null=True)
     role = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True,blank=True, related_name='users')
@@ -65,15 +65,39 @@ class User(AbstractUser):
     enabled = models.BooleanField(default=True)
     created = models.DateTimeField(default=timezone.now)
     isLoggedIn = models.IntegerField(default=0)
+    # Instructor-specific fields
+    title = models.CharField(max_length=200, blank=True, null=True, help_text="Professional title (e.g., 'Senior Software Engineer')")
+    bio = models.TextField(blank=True, null=True, help_text="Instructor biography")
+    
+    def get_full_name(self):
+        """Get full name"""
+        parts = [self.first_name]
+        if self.middle_name:
+            parts.append(self.middle_name)
+        if self.last_name:
+            parts.append(self.last_name)
+        return ' '.join(parts)
     USERNAME_FIELD = 'email'  # Use phone as the username
     REQUIRED_FIELDS = ['first_name',]
     objects = UserManager()
-
+   
     def save(self, *args, **kwargs):
-        
-        if not self.password:   
-            self.set_password("changeme")  # Use set_password to hash the default password
-        super().save(*args, **kwargs)  
+    # Generate a unique username if not set
+        if not self.username:
+            base_username = self.email.split('@')[0]
+            username = base_username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
+            self.username = username
+
+        # Set default password if not set
+        if not self.password:
+            self.set_password("changeme")
+
+        super().save(*args, **kwargs)
+
 
     def __str__(self):
         return f'{self.first_name}'
