@@ -1,5 +1,7 @@
+# Default:
+
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -248,12 +250,29 @@ class UserLogin(APIView):
         }, status=status.HTTP_200_OK)
 
 class UserLogout(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  
 
     def post(self, request):
-        logout(request)
-        return Response(status=status.HTTP_200_OK)
+        refresh_token = request.data.get("refresh") or request.data.get("refresh_token")
+        if not refresh_token:
+            return Response(
+                {"success": False, "message": "Refresh token required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()  
+            return Response(
+                {"success": True, "message": "You have been successfully logged out."},
+                status=status.HTTP_200_OK,
+            )
+        except TokenError:
+            return Response(
+                {"success": False, "message": "Invalid or expired refresh token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+            
 class UserView(APIView):
     permission_classes = [IsAuthenticated]
 

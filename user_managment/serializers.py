@@ -153,7 +153,7 @@ class UserLoginSerializer(serializers.Serializer):
     def validate(self, data):
         email = data.get('email')
         password = data.get('password')
-        print(f"Logge in tried with ===>  {email } and {password }")
+        print(f"Logge in tried with ===>  {email}")
         if not email or not password:
             raise serializers.ValidationError("email and password are required.")
         
