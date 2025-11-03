@@ -5,7 +5,8 @@ from rest_framework.response import Response
 from django.utils import timezone 
 from rest_framework.pagination import PageNumberPagination
 from user_managment.models import User
-from .models import Enrollment, LessonProgress, Lesson, Module
+from .models import Enrollment, LessonProgress, Lesson, Module, Category, Level, Course
+
 
 def success_response(self, data, message, status_code=status.HTTP_200_OK):
         return Response({
@@ -25,13 +26,6 @@ class CustomPagination(PageNumberPagination):
     page_size_query_param = 'page_size' # allow client to set page_size
     max_page_size = 100     
     
-
-from django.utils import timezone
-from rest_framework.response import Response
-from rest_framework import status
-from django.utils import timezone
-from rest_framework.response import Response
-from rest_framework import status
 
 def handle_course_create_or_update(request, serializer_class, get_serializer):
     try:

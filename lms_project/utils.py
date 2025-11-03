@@ -15,7 +15,7 @@ model_mapping = {
           # User managment
         'user':User,
         'role': Role,
-         "category": Category,
+        "category": Category,
         "level": Level,
         "course": Course,
         "module": Module,
@@ -39,6 +39,11 @@ model_mapping = {
         "conversation": Conversation,
         "message": Message,
         "course_overview": CourseOverview,
+        "course_faq": CourseFAQ,
+        # "module_progress": ModuleProgress,
+        # "assessment": Assessment,
+        # "assessment_progress": AssessmentProgress,
+        
     
        
      

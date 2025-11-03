@@ -613,7 +613,6 @@ class CourseAnnouncement(models.Model):
 
 class CheckpointQuizResponse(models.Model):
     """Student responses to checkpoint quizzes embedded in video/text lessons"""
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='checkpoint_responses')
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='checkpoint_responses')
     
@@ -851,3 +850,16 @@ class CourseOverview(models.Model):
         return f"Overview for {self.course.title}"
 
 
+class CourseFAQ(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="faqs")
+    question = models.CharField(max_length=300)
+    answer = models.TextField()
+
+    class Meta:
+        verbose_name_plural = "Course FAQ"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"FAQ for {self.course.title}: {self.question}"
+
+    

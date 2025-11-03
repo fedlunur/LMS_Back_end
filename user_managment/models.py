@@ -67,7 +67,7 @@ class User(AbstractUser):
     isLoggedIn = models.IntegerField(default=0)
     # Instructor-specific fields
     title = models.CharField(max_length=200, blank=True, null=True, help_text="Professional title (e.g., 'Senior Software Engineer')")
-    bio = models.TextField(blank=True, null=True, help_text="Instructor biography")
+    bio = models.TextField(max_length=500, blank=True, null=True, help_text="Instructor biography")
     
     def get_full_name(self):
         """Get full name"""
