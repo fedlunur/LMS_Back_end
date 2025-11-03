@@ -249,3 +249,8 @@ class QuizConfigurationAdmin(admin.ModelAdmin):
     search_fields = ("lesson__title",)    
     
 
+@admin.register(CourseOverview)
+class CourseOverviewAdmin(admin.ModelAdmin):
+    list_display = ("id", "course", "title", "subtitle", "description", "objective", "what_you_will_learn", "requirements", "total_enrollments", "average_rating", "completion_rate")
+    search_fields = ("course__title",)
+    readonly_fields = ("total_enrollments", "average_rating", "completion_rate")

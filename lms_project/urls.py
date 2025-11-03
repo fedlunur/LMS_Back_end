@@ -44,7 +44,7 @@ for name in [
     "CourseRating",
     "Conversation",
     "Message",
-    'NewModel'
+    "course_overview",
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 

@@ -164,3 +164,10 @@ class UserLoginSerializer(serializers.Serializer):
         
         return {'user': user}
 
+# Exclude password from user details
+class UserDetailSerializer(serializers.ModelSerializer):
+    role = RoleSerializer(read_only=True)
+    class Meta:
+        model = User
+        exclude = ('password',)
+

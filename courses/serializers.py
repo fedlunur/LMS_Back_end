@@ -1,4 +1,5 @@
 from user_managment.models import *
+from user_managment.serializers import UserDetailSerializer
 from courses.models import *
 from grading.models import *
 from rest_framework import serializers
@@ -9,19 +10,44 @@ from django.db.models.fields.related import ForeignKey
 from rest_framework import serializers
 from django.db.models import ForeignKey
 
+from rest_framework import serializers
+
 class WritableNestedField(serializers.PrimaryKeyRelatedField):
     """
     Accepts an ID for writes, returns nested object for reads.
-    Handles PKOnlyObject correctly.
+    Prevents unhashable ReturnDict errors during browsable API rendering.
     """
+
     def __init__(self, nested_serializer_class, **kwargs):
         self.nested_serializer_class = nested_serializer_class
         super().__init__(**kwargs)
 
+    def get_choices(self, cutoff=None):
+        """
+        Override DRF’s default choice building so it uses PKs (hashable)
+        instead of nested dicts during browsable API rendering.
+        """
+        queryset = self.get_queryset()
+        if queryset is None:
+            return {}
+        # Build simple {pk: label} mapping
+        return {item.pk: str(item) for item in queryset}
+
     def to_representation(self, value):
-        # If DRF passed a PKOnlyObject, fetch the real instance
-        if getattr(value, "_state", None) is None:  # PKOnlyObject
+        """
+        Return nested serializer for normal responses,
+        but fall back to PK for form/options rendering.
+        """
+        # Handle PKOnlyObject (when DRF prefetches only the ID)
+        if getattr(value, "_state", None) is None:  
             value = self.get_queryset().get(pk=value.pk)
+
+        # Detect if we’re rendering HTML form or metadata
+        request = self.context.get("request")
+        if request and request.accepted_renderer.format == "html":
+            return value.pk
+
+        # Normal API response: return full nested representation
         return self.nested_serializer_class(value, context=self.context).data
 
 
@@ -53,6 +79,9 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
             """
             Recursively create nested serializers for ForeignKey fields
             """
+            if current_model == User:
+                return UserDetailSerializer
+
             class NestedSerializer(serializers.ModelSerializer):
                 class Meta:
                     model = current_model

@@ -38,6 +38,7 @@ model_mapping = {
         "courserating": CourseRating,
         "conversation": Conversation,
         "message": Message,
+        "course_overview": CourseOverview,
     
        
      

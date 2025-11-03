@@ -113,6 +113,7 @@ class Module(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="modules")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    duration = models.CharField(max_length=50, default="", help_text="e.g., '2h 30m'")
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -331,6 +332,10 @@ class Enrollment(models.Model):
     course = models.ForeignKey(
         'Course', on_delete=models.CASCADE, related_name='enrollments', db_index=True
     )
+    is_enrolled = models.BooleanField(default=False)
+    is_unlocked = models.BooleanField(default=False)
+    is_completed = models.BooleanField(default=False)
+    completed_lessons = models.PositiveIntegerField(default=0)
     enrolled_at = models.DateTimeField(auto_now_add=True)
     progress = models.FloatField(default=0.0)  # Overall course progress %
     last_accessed = models.DateTimeField(auto_now=True)
@@ -828,5 +833,21 @@ class Message(models.Model):
         return f"{self.sender.get_full_name()} to {self.receiver.get_full_name()} - {self.sent_at.strftime('%Y-%m-%d %H:%M')}"
 
 
+# ------------ Additional Models for Course Details ------------ #
+
+class CourseOverview(models.Model):
+    course = models.OneToOneField(Course, on_delete=models.CASCADE, related_name="overview")
+    total_enrollments = models.PositiveIntegerField(default=0)
+    average_rating = models.FloatField(default=0.0)
+    completion_rate = models.FloatField(default=0.0)
+    title = models.CharField(max_length=200, blank=True)
+    subtitle = models.CharField(max_length=300, blank=True)
+    description = models.TextField(blank=True)
+    objective = models.JSONField(default=list, blank=True)  # ["Build React apps", ...]
+    what_you_will_learn = models.JSONField(default=list, blank=True)
+    requirements = models.JSONField(default=list, blank=True)
+
+    def __str__(self):
+        return f"Overview for {self.course.title}"
 
 
