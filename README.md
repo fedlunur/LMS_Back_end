@@ -15,3 +15,33 @@ This guide will help you set up the **LMS backend** using **Docker**, **PostgreS
    docker --version
    docker-compose --version
 5.clone the repo activate venv and run accordingly
+
+## ▶️ Step 2: Start Docker, run containers, and apply migrations
+
+1. Make sure Docker Desktop is running (WSL2 enabled if on Windows) and open a terminal in the project root (where docker-compose.yml lives).
+
+2. Build and start containers in detached mode:
+```bash
+docker-compose up --build -d
+```
+
+3. Create and apply Django migrations inside the web container:
+```bash
+docker-compose exec web python manage.py makemigrations
+docker-compose exec web python manage.py migrate
+```
+
+4. If you change models or need to rebuild images, rebuild and restart:
+```bash
+docker-compose build web
+docker-compose up -d
+```
+(or simply `docker-compose up --build -d` to rebuild all services)
+
+5. Open the API in your browser:
+http://localhost:8888/api
+
+Optional: follow logs if you need to troubleshoot
+```bash
+docker-compose logs -f web
+```
