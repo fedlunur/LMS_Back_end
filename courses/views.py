@@ -9,10 +9,24 @@ from rest_framework import viewsets, status
 from .serializers import DynamicFieldSerializer
 from .UtilMethods import *
 from lms_project.utils import *
+from .models import (
+    Course, Enrollment, Lesson, Module, ModuleProgress,
+    QuizAttempt, AssignmentSubmission, FinalCourseAssessment, AssessmentAttempt,
+    LessonProgress, AssignmentLesson, Certificate
+)
 
 class GenericModelViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
 
+    # def get_permissions(self):
+    #     # Require login for listing/retrieving courses and their overviews,
+    #     # keep existing behavior (open read, auth for write) for other models.
+    #     if self.action in ["list", "retrieve"]:
+    #         if self.basename.lower() in ["course", "course_overview"]:
+    #             return [IsAuthenticated()]
+    #         return [AllowAny()]
+    #     return [IsAuthenticated()]
+    
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [AllowAny()]
@@ -149,4 +163,531 @@ def mark_lesson_completed_view(request, lesson_id):
     else:
         return Response({"success": False, "message": message}, status=status.HTTP_400_BAD_REQUEST)
 
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def enroll_in_course_view(request, course_id):
+    """
+    Enroll the authenticated user in a course.
+    """
+    try:
+        course = Course.objects.get(id=course_id)
+        success, message = enroll_user_in_course(request.user, course)
+        if success:
+            enrollment = Enrollment.objects.get(student=request.user, course=course)
+            from .serializers import DynamicFieldSerializer
+            serializer = DynamicFieldSerializer(enrollment, model_name="enrollment")
+            return Response({
+                "success": True,
+                "message": message,
+                "data": serializer.data
+            }, status=status.HTTP_201_CREATED)
+        else:
+            return Response({"success": False, "message": message}, status=status.HTTP_400_BAD_REQUEST)
+    except Course.DoesNotExist:
+        return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_enrolled_courses_view(request):
+    """
+    Get all courses enrolled by the authenticated user.
+    """
+    enrollments = Enrollment.objects.filter(
+        student=request.user,
+        payment_status='completed'
+    ).select_related('course', 'course__instructor', 'course__category', 'course__level')
+    
+    from .serializers import DynamicFieldSerializer
+    serializer = DynamicFieldSerializer(enrollments, many=True, model_name="enrollment")
+    
+    return Response({
+        "success": True,
+        "data": serializer.data,
+        "message": "Enrolled courses retrieved successfully."
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_quiz_view(request, lesson_id):
+    """
+    Submit quiz answers for a lesson.
+    Expected payload: {"responses": [{"question_id": 1, "answer_id": 2}, ...]}
+    """
+    responses = request.data.get('responses', [])
+    if not responses:
+        return Response({
+            "success": False,
+            "message": "Responses are required."
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    success, message, attempt_data = submit_quiz(request.user, lesson_id, responses)
+    if success:
+        return Response({
+            "success": True,
+            "message": message,
+            "data": attempt_data
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            "success": False,
+            "message": message
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_assignment_view(request, lesson_id):
+    """
+    Submit assignment for a lesson.
+    Expected payload: {
+        "submission_text": "...",
+        "submission_file": <file>,
+        "submission_url": "...",
+        "github_repo": "..."
+    }
+    """
+    submission_data = {
+        'submission_text': request.data.get('submission_text', ''),
+        'submission_file': request.FILES.get('submission_file'),
+        'submission_url': request.data.get('submission_url', ''),
+        'github_repo': request.data.get('github_repo', '')
+    }
+    
+    success, message, submission = submit_assignment(request.user, lesson_id, submission_data)
+    if success:
+        from .serializers import DynamicFieldSerializer
+        serializer = DynamicFieldSerializer(submission, model_name="assignmentsubmission")
+        return Response({
+            "success": True,
+            "message": message,
+            "data": serializer.data
+        }, status=status.HTTP_201_CREATED)
+    else:
+        return Response({
+            "success": False,
+            "message": message
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_assignment_and_complete_view(request, lesson_id):
+    """
+    Submit assignment and mark lesson as completed.
+    """
+    # First submit the assignment
+    submission_data = {
+        'submission_text': request.data.get('submission_text', ''),
+        'submission_file': request.FILES.get('submission_file'),
+        'submission_url': request.data.get('submission_url', ''),
+        'github_repo': request.data.get('github_repo', '')
+    }
+    
+    success, message, submission = submit_assignment(request.user, lesson_id, submission_data)
+    if not success:
+        return Response({
+            "success": False,
+            "message": message
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Mark lesson as completed
+    success, message = mark_lesson_completed(request.user, lesson_id)
+    if success:
+        from .serializers import DynamicFieldSerializer
+        serializer = DynamicFieldSerializer(submission, model_name="assignmentsubmission")
+        return Response({
+            "success": True,
+            "message": "Assignment submitted and lesson marked as completed.",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            "success": False,
+            "message": f"Assignment submitted but failed to mark lesson complete: {message}"
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_final_assessment_view(request, course_id):
+    """
+    Get final assessment for a course (with randomized questions if enabled).
+    """
+    try:
+        enrollment = Enrollment.objects.get(student=request.user, course_id=course_id)
+        
+        if enrollment.payment_status != 'completed':
+            return Response({
+                "success": False,
+                "message": "Payment not completed for this course."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check eligibility
+        can_take, message = can_take_final_assessment(request.user, course_id)
+        if not can_take:
+            return Response({
+                "success": False,
+                "message": message
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        assessment = getattr(enrollment.course, 'final_assessment', None)
+        if not assessment:
+            return Response({
+                "success": False,
+                "message": "Final assessment not found for this course."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        if not assessment.is_active:
+            return Response({
+                "success": False,
+                "message": "Final assessment is not active."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get questions
+        questions = assessment.questions.all()
+        
+        # Randomize if enabled
+        if assessment.randomize_questions:
+            questions = questions.order_by('?')
+        
+        from .serializers import DynamicFieldSerializer
+        question_serializer = DynamicFieldSerializer(questions, many=True, model_name="assessmentquestion")
+        
+        return Response({
+            "success": True,
+            "data": {
+                "assessment": {
+                    "id": assessment.id,
+                    "title": assessment.title,
+                    "description": assessment.description,
+                    "time_limit": assessment.time_limit,
+                    "max_attempts": assessment.max_attempts,
+                    "show_correct_answers": assessment.show_correct_answers
+                },
+                "questions": question_serializer.data
+            },
+            "message": "Final assessment retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_final_assessment_view(request, course_id):
+    """
+    Submit final course assessment.
+    Expected payload: {"responses": [{"question_id": 1, "answer_id": 2}, ...]}
+    """
+    responses = request.data.get('responses', [])
+    if not responses:
+        return Response({
+            "success": False,
+            "message": "Responses are required."
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    success, message, attempt_data = submit_final_assessment(request.user, course_id, responses)
+    if success:
+        return Response({
+            "success": True,
+            "message": message,
+            "data": attempt_data
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            "success": False,
+            "message": message
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_course_progress_view(request, course_id):
+    """
+    Get detailed progress for a course including module and lesson progress.
+    """
+    try:
+        enrollment = Enrollment.objects.get(student=request.user, course_id=course_id)
+        
+        # Get module progress
+        module_progress_list = ModuleProgress.objects.filter(
+            enrollment=enrollment
+        ).select_related('module')
+        
+        # Get lesson progress
+        lesson_progress_list = LessonProgress.objects.filter(
+            enrollment=enrollment
+        ).select_related('lesson', 'lesson__module')
+        
+        from .serializers import DynamicFieldSerializer
+        module_serializer = DynamicFieldSerializer(module_progress_list, many=True, model_name="moduleprogress")
+        lesson_serializer = DynamicFieldSerializer(lesson_progress_list, many=True, model_name="lessonprogress")
+        
+        return Response({
+            "success": True,
+            "data": {
+                "enrollment": {
+                    "progress": float(enrollment.progress),
+                    "completed_lessons": enrollment.completed_lessons,
+                    "is_completed": enrollment.is_completed
+                },
+                "module_progress": module_serializer.data,
+                "lesson_progress": lesson_serializer.data
+            },
+            "message": "Course progress retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_quiz_results_view(request, lesson_id):
+    """
+    Get quiz results for a lesson (with correct answers if show_correct_answers is enabled).
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        enrollment = Enrollment.objects.get(student=request.user, course=lesson.course)
+        
+        # Get latest attempt
+        attempt = QuizAttempt.objects.filter(
+            student=request.user,
+            lesson=lesson
+        ).order_by('-completed_at').first()
+        
+        if not attempt:
+            return Response({
+                "success": False,
+                "message": "No quiz attempt found for this lesson."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get quiz config
+        quiz_config = getattr(lesson, 'quiz_config', None)
+        show_answers = quiz_config.show_correct_answers if quiz_config else True
+        
+        # Get responses
+        responses = attempt.responses.all().select_related('question', 'answer')
+        
+        from .serializers import DynamicFieldSerializer
+        response_serializer = DynamicFieldSerializer(responses, many=True, model_name="quizresponse")
+        
+        result_data = {
+            "attempt": {
+                "score": attempt.score,
+                "correct_answers": attempt.correct_answers,
+                "total_questions": attempt.total_questions,
+                "completed_at": attempt.completed_at
+            },
+            "responses": response_serializer.data
+        }
+        
+        # Include correct answers if enabled
+        if show_answers:
+            result_data["show_correct_answers"] = True
+        
+        return Response({
+            "success": True,
+            "data": result_data,
+            "message": "Quiz results retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Lesson.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Lesson not found."
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+# ============ Teacher/Instructor Endpoints ============
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_course_students_view(request, course_id):
+    """Get all students enrolled in a course (for instructors)."""
+    try:
+        course = Course.objects.get(id=course_id)
+        if course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to view students for this course."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        enrollments = Enrollment.objects.filter(
+            course=course,
+            payment_status='completed'
+        ).select_related('student')
+        
+        serializer = DynamicFieldSerializer(enrollments, many=True, model_name="enrollment")
+        
+        return Response({
+            "success": True,
+            "data": serializer.data,
+            "message": "Course students retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    except Course.DoesNotExist:
+        return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_student_progress_view(request, course_id, student_id):
+    """Get detailed progress for a specific student in a course (for instructors)."""
+    try:
+        course = Course.objects.get(id=course_id)
+        if course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to view this student's progress."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        from user_managment.models import User
+        student = User.objects.get(id=student_id)
+        enrollment = Enrollment.objects.get(student=student, course=course)
+        
+        module_progress_list = ModuleProgress.objects.filter(enrollment=enrollment).select_related('module')
+        lesson_progress_list = LessonProgress.objects.filter(enrollment=enrollment).select_related('lesson', 'lesson__module')
+        
+        module_serializer = DynamicFieldSerializer(module_progress_list, many=True, model_name="moduleprogress")
+        lesson_serializer = DynamicFieldSerializer(lesson_progress_list, many=True, model_name="lessonprogress")
+        
+        return Response({
+            "success": True,
+            "data": {
+                "student": {"id": student.id, "email": student.email, "name": student.get_full_name()},
+                "enrollment": {
+                    "progress": float(enrollment.progress),
+                    "completed_lessons": enrollment.completed_lessons,
+                    "is_completed": enrollment.is_completed,
+                    "enrolled_at": enrollment.enrolled_at
+                },
+                "module_progress": module_serializer.data,
+                "lesson_progress": lesson_serializer.data
+            },
+            "message": "Student progress retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    except Course.DoesNotExist:
+        return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
+    except Enrollment.DoesNotExist:
+        return Response({"success": False, "message": "Student is not enrolled in this course."}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_assignment_submissions_view(request, lesson_id):
+    """Get all submissions for an assignment lesson (for instructors)."""
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        if lesson.course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to view submissions for this lesson."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        if lesson.content_type != Lesson.ContentType.ASSIGNMENT:
+            return Response({
+                "success": False,
+                "message": "This lesson is not an assignment."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        submissions = AssignmentSubmission.objects.filter(lesson=lesson).select_related('student', 'enrollment').order_by('-submitted_at')
+        
+        serializer = DynamicFieldSerializer(submissions, many=True, model_name="assignmentsubmission")
+        
+        return Response({
+            "success": True,
+            "data": serializer.data,
+            "message": "Assignment submissions retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    except Lesson.DoesNotExist:
+        return Response({"success": False, "message": "Lesson not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def grade_assignment_view(request, submission_id):
+    """Grade an assignment submission (for instructors). Expected payload: {"score": 85.0, "feedback": "Great work!", "status": "graded"}"""
+    try:
+        submission = AssignmentSubmission.objects.get(id=submission_id)
+        if submission.lesson.course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to grade this submission."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        score = request.data.get('score')
+        feedback = request.data.get('feedback', '')
+        status_val = request.data.get('status', 'graded')
+        
+        if score is None:
+            return Response({"success": False, "message": "Score is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if submission.max_score and score > submission.max_score:
+            return Response({
+                "success": False,
+                "message": f"Score cannot exceed maximum score of {submission.max_score}."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        submission.score = float(score)
+        submission.feedback = feedback
+        submission.status = status_val
+        submission.graded_by = request.user
+        submission.graded_at = timezone.now()
+        submission.save()
+        
+        serializer = DynamicFieldSerializer(submission, model_name="assignmentsubmission")
+        
+        return Response({
+            "success": True,
+            "data": serializer.data,
+            "message": "Assignment graded successfully."
+        }, status=status.HTTP_200_OK)
+    except AssignmentSubmission.DoesNotExist:
+        return Response({"success": False, "message": "Submission not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_certificate_view(request, enrollment_id):
+    """Get certificate for an enrollment (for students and instructors)."""
+    try:
+        enrollment = Enrollment.objects.get(id=enrollment_id)
+        if enrollment.student != request.user and enrollment.course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to view this certificate."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        certificate = getattr(enrollment, 'certificate', None)
+        if not certificate:
+            return Response({
+                "success": False,
+                "message": "Certificate not found. Complete the course and pass the final assessment to receive a certificate."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = DynamicFieldSerializer(certificate, model_name="certificate")
+        
+        return Response({
+            "success": True,
+            "data": serializer.data,
+            "message": "Certificate retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    except Enrollment.DoesNotExist:
+        return Response({"success": False, "message": "Enrollment not found."}, status=status.HTTP_404_NOT_FOUND)
 

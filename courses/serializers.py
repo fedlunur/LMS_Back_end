@@ -101,14 +101,24 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
 
             return NestedSerializer
 
-        # Replace ForeignKey fields with WritableNestedField
+        # # Replace ForeignKey fields with WritableNestedField - to show all nested data
+        # for f in model._meta.get_fields():
+        #     if isinstance(f, ForeignKey):
+        #         nested_serializer_class = nest_foreign_keys(f.related_model)
+        #         self.fields[f.name] = WritableNestedField(
+        #             nested_serializer_class=nested_serializer_class,
+        #             queryset=f.related_model.objects.all()
+        #         )
+
+        # Replace ForeignKey fields with ID-only fields - to show only IDs
         for f in model._meta.get_fields():
             if isinstance(f, ForeignKey):
-                nested_serializer_class = nest_foreign_keys(f.related_model)
-                self.fields[f.name] = WritableNestedField(
-                    nested_serializer_class=nested_serializer_class,
+                self.fields[f.name] = serializers.PrimaryKeyRelatedField(
                     queryset=f.related_model.objects.all()
                 )
+
+
+
 
     class Meta:
         model = None
