@@ -9,12 +9,15 @@ from courses.views import (
     mark_lesson_completed_view,
     enroll_in_course_view,
     get_enrolled_courses_view,
+    get_published_courses_view,
+    get_course_overview_view,
     submit_quiz_view,
     submit_assignment_view,
     submit_assignment_and_complete_view,
     get_final_assessment_view,
     submit_final_assessment_view,
     get_course_progress_view,
+    get_student_analytics_view,
     get_quiz_results_view,
     get_course_students_view,
     get_student_progress_view,
@@ -93,6 +96,10 @@ urlpatterns = [
     re_path(r'^api/user_logout/?$', UserLogout.as_view(), name='user_logout'),
     re_path(r'^api/mark-lesson-completed/(?P<lesson_id>\d+)/$', mark_lesson_completed_view, name='mark_lesson_completed'),
     
+    # Course browsing endpoints (for all authenticated users)
+    re_path(r'^api/published-courses/$', get_published_courses_view, name='published_courses'),
+    re_path(r'^api/course-overview/(?P<course_id>\d+)/$', get_course_overview_view, name='course_overview'),
+    
     # Enrollment endpoints
     re_path(r'^api/enroll-course/(?P<course_id>\d+)/$', enroll_in_course_view, name='enroll_course'),
     re_path(r'^api/enrolled-courses/$', get_enrolled_courses_view, name='enrolled_courses'),
@@ -111,6 +118,7 @@ urlpatterns = [
     
     # Progress endpoints
     re_path(r'^api/course-progress/(?P<course_id>\d+)/$', get_course_progress_view, name='course_progress'),
+    re_path(r'^api/student-analytics/$', get_student_analytics_view, name='student_analytics'),
     
     # Teacher/Instructor endpoints
     re_path(r'^api/course-students/(?P<course_id>\d+)/$', get_course_students_view, name='course_students'),
