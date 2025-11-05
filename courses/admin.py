@@ -64,7 +64,7 @@ class VideoLessonAdmin(admin.ModelAdmin):
     list_display = ("lesson", "youtube_url", "duration")
     search_fields = ("lesson__title",)
     inlines = [VideoLessonAttachmentInline]
-    
+
 @admin.register(QuizLesson)
 class QuizLessonAdmin(admin.ModelAdmin):
     list_display = ("lesson", "type")
@@ -77,10 +77,25 @@ class AssignmentLessonAdmin(admin.ModelAdmin):
     search_fields = ("lesson__title",)
     readonly_fields = ("rubric_criteria",)  # or keep editable as JSON
 
+
+class ArticleLessonAttachmentInline(admin.TabularInline):
+    model = ArticleLessonAttachment
+    extra = 1
+    fields = ("file", "uploaded_at")
+    readonly_fields = ("uploaded_at",)
+
+
+class ArticleLessonExternalLinkInline(admin.TabularInline):
+    model = ArticleLessonExternalLink
+    extra = 1
+    fields = ("title", "url", "description")
+
+
 @admin.register(ArticleLesson)
 class ArticleLessonAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "estimated_read_time", "external_links")
+    list_display = ("lesson", "estimated_read_time", "attachments_title")
     search_fields = ("lesson__title",)
+    inlines = [ArticleLessonAttachmentInline, ArticleLessonExternalLinkInline]
 
 
 @admin.register(LessonResource)

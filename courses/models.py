@@ -338,26 +338,49 @@ class AssignmentLesson(models.Model):
        
         verbose_name_plural = "AssignmentLesson"
 
+        
 class ArticleLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="article")
     title = models.CharField(max_length=200)
     subtitle = models.CharField(max_length=300, blank=True)
     content = models.TextField(blank=True)
-    estimated_read_time = models.PositiveIntegerField(default=0, blank=True, help_text="Auto-calculated based on word count")
+    estimated_read_time = models.PositiveIntegerField(
+        default=0, blank=True, help_text="Auto-calculated based on word count"
+    )
     attachments_title = models.CharField(max_length=200, blank=True)
-    attachments = models.FileField(upload_to='article_attachments/', null=True, blank=True)
-    external_links = models.JSONField(default=list, blank=True)  # id, title, url, description
 
     class Meta:
         verbose_name_plural = "ArticleLesson"
-    
-    def save(self, *args, **kwargs):
-        # Auto-calculate estimated read time (average reading speed: 200-250 words per minute)
-        if self.content:
-            word_count = len(self.content.split())
-            # Use 225 words per minute as average
-            self.estimated_read_time = max(1, round(word_count / 225))
-        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.title or self.lesson.title
+
+
+class ArticleLessonAttachment(models.Model):
+    article_lesson = models.ForeignKey(
+        "ArticleLesson",
+        on_delete=models.CASCADE,
+        related_name="attachment_items"
+    )
+    file = models.FileField(upload_to="article_lesson_attachments/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.article_lesson.lesson.title} — {self.file.name}"
+
+
+class ArticleLessonExternalLink(models.Model):
+    article_lesson = models.ForeignKey(
+        "ArticleLesson",
+        on_delete=models.CASCADE,
+        related_name="external_links_items"
+    )
+    title = models.CharField(max_length=200)
+    url = models.URLField(max_length=500)
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.article_lesson.lesson.title})"
 
 class LessonResource(models.Model):
     RESOURCE_TYPE_CHOICES = [
