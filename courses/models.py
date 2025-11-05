@@ -22,7 +22,6 @@ class Category(models.Model):
         verbose_name_plural = "Category"
     def save(self, *args, **kwargs):
         if not self.slug:
-            # Auto-generate slug from name if not provided
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 
@@ -113,7 +112,6 @@ class Module(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     duration = models.CharField(max_length=50, default="", help_text="e.g., '2h 30m'")
-    number_of_lessons = models.PositiveIntegerField(default=0)
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -434,7 +432,7 @@ class LessonProgress(models.Model):
     lesson = models.ForeignKey(
         'Lesson', on_delete=models.CASCADE, related_name='student_progress', db_index=True
     )
-    progress = models.FloatField(default=0.0)  # Lesson progress %
+    progress = models.DecimalField(max_digits=5, decimal_places=2, default=0.00) 
     # The above code is a comment in Python. Comments are used to provide explanations or notes within
     # the code for better understanding. In this case, the comment indicates that the code has been
     # completed.

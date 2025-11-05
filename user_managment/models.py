@@ -7,6 +7,8 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.utils.text import slugify
+
 # Create your models here.
 class UserManager(BaseUserManager):
     def create_user(self, email, first_name, middle_name=None, password=None, **extra_fields):
@@ -47,10 +49,18 @@ class UserManager(BaseUserManager):
             raise ValueError('Superuser must have is_superuser=True.')
 
         return self.create_user(email, first_name, password=password, **extra_fields)
+
 class Role(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=140, unique=True)
+    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return self.name
+        return f'{self.name}'
 
 class User(AbstractUser):
     first_name = models.CharField(max_length=255, null=False)
