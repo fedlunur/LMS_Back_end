@@ -111,8 +111,8 @@ class Module(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="modules")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    duration = models.CharField(max_length=50, default="", help_text="e.g., '2h 30m'")
-    order = models.PositiveIntegerField(default=0)
+    duration = models.CharField(max_length=50, blank=True, default="", help_text="e.g., '2h 30m'")
+    order = models.PositiveIntegerField(default=0, blank=True)
 
     class Meta:
         verbose_name_plural = "Modules"
