@@ -21,8 +21,9 @@ class CustomUserAdmin(UserAdmin):
         }),
     )
 
-    list_display = ( 'first_name','middle_name','email','role', 'enabled', 'is_staff')  # Match 'enabled' from model
+    list_display = ( 'first_name','last_name','middle_name','email','role', 'enabled', 'is_staff')  # Match 'enabled' from model
     search_fields = ('email', 'first_name', 'last_name','phone')
+    list_filter = ('enabled', 'is_staff', 'role')
     ordering = ('created',)
 
 admin.site.register(User, CustomUserAdmin)

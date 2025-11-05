@@ -138,18 +138,18 @@ class Module(models.Model):
 class Lesson(models.Model):
     class ContentType(models.TextChoices):
         VIDEO = "video", "Video"
-        TEXT = "text", "Text"
         QUIZ = "quiz", "Quiz"
         ASSIGNMENT = "assignment", "Assignment"
         ARTICLE = "article", "Article"
-        FILE = "file", "File"
-        URL = "url", "URL/Link"
+        # TEXT = "text", "Text"
+        # FILE = "file", "File"
+        # URL = "url", "URL/Link"
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
     module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="lessons")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     content_type = models.CharField(max_length=20, choices=ContentType.choices, default=ContentType.VIDEO)
-    order = models.PositiveIntegerField(default=0)
+    order = models.PositiveIntegerField(default=0, blank=True)
     duration = models.DurationField(null=True, blank=True)  # better for arithmetic
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -172,11 +172,11 @@ class VideoLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="video")
     video_file = models.FileField(upload_to='lesson_videos/', null=True, blank=True)
     youtube_url = models.URLField(max_length=500, blank=True)
-    title = models.CharField(max_length=200)
+    title = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True)
     attachments =  models.FileField(upload_to='lesson_file_attachments/', null=True, blank=True)
     transcript = models.TextField(blank=True)
-    chapters =  models.JSONField(default=list, blank=True)  # list of chapter names/timestamps
+    # chapters =  models.JSONField(default=list, blank=True)  # list of chapter names/timestamps
     duration = models.DurationField(null=True, blank=True)
     class Meta:
         verbose_name_plural = "VideoLesson"
@@ -327,9 +327,11 @@ class ArticleLesson(models.Model):
     title = models.CharField(max_length=200)
     subtitle = models.CharField(max_length=300, blank=True)
     content = models.TextField(blank=True)
-    estimated_read_time = models.PositiveIntegerField(default=0, help_text="Auto-calculated based on word count")
+    estimated_read_time = models.PositiveIntegerField(default=0, blank=True, help_text="Auto-calculated based on word count")
+    attachments_title = models.CharField(max_length=200, blank=True)
+    attachments = models.FileField(upload_to='article_attachments/', null=True, blank=True)
     external_links = models.JSONField(default=list, blank=True)  # id, title, url, description
-    
+
     class Meta:
         verbose_name_plural = "ArticleLesson"
     
@@ -342,9 +344,17 @@ class ArticleLesson(models.Model):
         super().save(*args, **kwargs)
 
 class LessonResource(models.Model):
+    RESOURCE_TYPE_CHOICES = [
+        ('pdf', 'PDF'),
+        ('doc', 'Document'),
+        ('video', 'Video'),
+        ('image', 'Image'),
+        ('other', 'Other'),
+    ]
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="resources")
-    title = models.CharField(max_length=200)
-    type = models.CharField(max_length=50)
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    type = models.CharField(max_length=50, choices=RESOURCE_TYPE_CHOICES, default="pdf")
     file = models.FileField(upload_to='lesson_resources/', null=True, blank=True)  
     class Meta:
        

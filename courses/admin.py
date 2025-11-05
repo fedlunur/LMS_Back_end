@@ -74,9 +74,8 @@ class AssignmentLessonAdmin(admin.ModelAdmin):
 
 @admin.register(ArticleLesson)
 class ArticleLessonAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "estimated_read_time")
+    list_display = ("lesson", "estimated_read_time", "external_links")
     search_fields = ("lesson__title",)
-    readonly_fields = ("estimated_read_time", "external_links")  # Auto-calculated read time and JSON field
 
 
 @admin.register(LessonResource)
