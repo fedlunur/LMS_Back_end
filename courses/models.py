@@ -17,7 +17,6 @@ class Category(models.Model):
         blank=True,
         help_text="Frontend icon identifier, e.g., 'BookOpen', 'Code', etc."
     )
-    count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         verbose_name_plural = "Category"
@@ -111,6 +110,7 @@ class Module(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     duration = models.CharField(max_length=50, default="", help_text="e.g., '2h 30m'")
+    number_of_lessons = models.PositiveIntegerField(default=0)
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -123,6 +123,14 @@ class Module(models.Model):
     def __str__(self):
         return f"{self.course.title} - {self.title}"
 
+    def save(self, *args, **kwargs):
+        # Calculate number of lessons before saving
+        if self.pk:  # Only if this module already exists in DB
+            self.number_of_lessons = self.lessons.count()
+        else:
+            self.number_of_lessons = 0
+        super().save(*args, **kwargs)
+
 
 # The `Lesson` class defines a model with fields for course, module, title, description, content type,
 # order, duration, created and updated timestamps, and a unique constraint on course and order.
@@ -132,11 +140,11 @@ class Lesson(models.Model):
         TEXT = "text", "Text"
         QUIZ = "quiz", "Quiz"
         ASSIGNMENT = "assignment", "Assignment"
-        ARTICLE='article'
+        ARTICLE = "article", "Article"
         FILE = "file", "File"
         URL = "url", "URL/Link"
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="Lessons")
-    module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="Lessons")
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
+    module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="lessons")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     content_type = models.CharField(max_length=20, choices=ContentType.choices, default=ContentType.VIDEO)

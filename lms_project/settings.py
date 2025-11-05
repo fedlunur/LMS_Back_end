@@ -22,8 +22,8 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
-#ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
+ALLOWED_HOSTS = ['*']
 # DATABASES = {
 #     'default': {
 #         'ENGINE': 'django.db.backends.postgresql',
@@ -256,8 +256,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://10.0.2.2:8888",
     "http://127.0.0.1:8888",
     'http://188.245.105.29:8888',
-     'http://localhost:62488', 
-    
+     'http://localhost:62488',
+    "https://*.ngrok-free.app",
+    "http://c08a15be5985.ngrok-free.app",
 ]
 CORS_ALLOW_METHODS = [
     "GET",

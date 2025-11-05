@@ -50,6 +50,7 @@ def get_model_mapping():
         "quizconfiguration": courses_models.QuizConfiguration,
         "assignmentsubmission": courses_models.AssignmentSubmission,
         "moduleprogress": courses_models.ModuleProgress,
+        "lessonprogress": courses_models.LessonProgress,
         "finalcourseassessment": courses_models.FinalCourseAssessment,
         "assessmentquestion": courses_models.AssessmentQuestion,
         "assessmentanswer": courses_models.AssessmentAnswer,

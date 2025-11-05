@@ -287,7 +287,7 @@ def get_published_courses_view(request):
     """
     courses = Course.objects.filter(
         status='published'
-    ).select_related('instructor', 'category', 'level').prefetch_related('overview', 'modules', 'Lessons')
+    ).select_related('instructor', 'category', 'level').prefetch_related('overview', 'modules', 'lessons')
     
     # Check which courses the user is enrolled in
     enrolled_course_ids = set(

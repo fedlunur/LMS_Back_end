@@ -5,12 +5,12 @@ from django.contrib.admin import AdminSite
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "slug", "icon", "count", "created_at")
+    list_display = ("name", "slug", "icon", "created_at")
     list_filter = ("created_at",)
     search_fields = ("name", "slug", "description")
     prepopulated_fields = {"slug": ("name",)}
     ordering = ("-created_at",)
-    readonly_fields = ("created_at", "count")
+    readonly_fields = ("created_at",)
 
     fieldsets = (
         (None, {

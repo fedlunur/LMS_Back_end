@@ -20,8 +20,8 @@ class CustomUserAdmin(UserAdmin):
             'fields': ('first_name', 'last_name','middle_name', 'email','role', 'password1', 'password2', 'phone', 'photo', 'enabled', 'status', ),  # Ensure field names match the model fields
         }),
     )
-    
-    list_display = ( 'first_name','middle_name','role', 'enabled', 'is_staff')  # Match 'enabled' from model
+
+    list_display = ( 'first_name','middle_name','email','role', 'enabled', 'is_staff')  # Match 'enabled' from model
     search_fields = ('email', 'first_name', 'last_name','phone')
     ordering = ('created',)
 
