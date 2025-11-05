@@ -88,7 +88,7 @@ SIMPLE_JWT = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        # 'rest_framework.authentication.SessionAuthentication',  # Only for browsable API
+        'rest_framework.authentication.SessionAuthentication',  # Only for browsable API
         'rest_framework_simplejwt.authentication.JWTAuthentication', 
     ),
     # 'DEFAULT_PERMISSION_CLASSES': (
@@ -244,9 +244,10 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # if you need to block access from postman make true 
 # CSRF_COOKIE_HTTPONLY = False
-# CSRF_TRUSTED_ORIGINS = [
-#     'http://188.245.105.29',
-# ]
+CSRF_TRUSTED_ORIGINS = [
+    # 'http://188.245.105.29',
+   "https://c08a15be5985.ngrok-free.app",
+]
 
 CORS_ALLOW_ALL_ORIGINS = True  # For testing
 CORS_ALLOW_CREDENTIALS = True
