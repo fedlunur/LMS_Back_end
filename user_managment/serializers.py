@@ -124,7 +124,7 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('password2', None)
         
         # Get or create the default "Student" role
-        role, _ = Role.objects.get_or_create(name='Student')
+        role, _ = Role.objects.get_or_create(name='student')
 
         # Create the user
         user = User.objects.create(

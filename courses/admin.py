@@ -17,7 +17,7 @@ class CategoryAdmin(admin.ModelAdmin):
             "fields": ("name", "slug", "description", "icon")
         }),
         ("Metadata", {
-            "fields": ("count", "created_at"),
+            "fields": ("created_at",),
             "classes": ("collapse",),
         }),
     )
