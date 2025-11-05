@@ -55,11 +55,16 @@ class LessonAdmin(admin.ModelAdmin):
     autocomplete_fields = ("course", "module")
 
 
+class VideoLessonAttachmentInline(admin.TabularInline):
+    model = VideoLessonAttachment
+    extra = 1
+
 @admin.register(VideoLesson)
 class VideoLessonAdmin(admin.ModelAdmin):
     list_display = ("lesson", "youtube_url", "duration")
     search_fields = ("lesson__title",)
-
+    inlines = [VideoLessonAttachmentInline]
+    
 @admin.register(QuizLesson)
 class QuizLessonAdmin(admin.ModelAdmin):
     list_display = ("lesson", "type")

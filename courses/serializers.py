@@ -4,8 +4,7 @@ from courses.models import *
 from grading.models import *
 from rest_framework import serializers
 from lms_project.utils import *
-from django.db.models.fields.related import ForeignKey
-
+from django.db.models.fields.related import ForeignKey, ManyToOneRel
 
 from rest_framework import serializers
 from django.db.models import ForeignKey
@@ -118,7 +117,19 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                 )
 
 
+        # Handle reverse relations for specific models
+        for f in model._meta.get_fields():
+            if isinstance(f, ManyToOneRel):
+                related_model = f.related_model
+                related_name = f.get_accessor_name()  # this is 'attachments' in VideoLesson
+                if model == VideoLesson and related_model == VideoLessonAttachment:
+                    # Use a nested serializer for attachments
+                    class AttachmentSerializer(serializers.ModelSerializer):
+                        class Meta:
+                            model = related_model
+                            fields = ["id", "file", "uploaded_at"]
 
+                    self.fields[related_name] = AttachmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = None

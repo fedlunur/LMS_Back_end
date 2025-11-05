@@ -174,12 +174,28 @@ class VideoLesson(models.Model):
     youtube_url = models.URLField(max_length=500, blank=True)
     title = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True)
-    attachments =  models.FileField(upload_to='lesson_file_attachments/', null=True, blank=True)
     transcript = models.TextField(blank=True)
-    # chapters =  models.JSONField(default=list, blank=True)  # list of chapter names/timestamps
     duration = models.DurationField(null=True, blank=True)
+
     class Meta:
         verbose_name_plural = "VideoLesson"
+
+    def __str__(self):
+        return self.title or self.lesson.title
+
+
+class VideoLessonAttachment(models.Model):
+    video_lesson = models.ForeignKey(
+        "VideoLesson",
+        on_delete=models.CASCADE,
+        related_name="attachments"
+    )
+    file = models.FileField(upload_to="video_lesson_attachments/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.video_lesson.lesson.title} — {self.file.name}"
+
 
 class QuizLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="quiz")
