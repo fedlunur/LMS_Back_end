@@ -30,7 +30,7 @@ class LevelAdmin(admin.ModelAdmin):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ("title", "category", "level", "price", "instructor", "status", "created_at", "updated_at")
+    list_display = ("id", "title", "category", "level", "price", "instructor", "status", "created_at", "updated_at")
     list_filter = ("category", "level", "status", "created_at")
     search_fields = ("title", "description", "slug")
     prepopulated_fields = {"slug": ("title",)}
