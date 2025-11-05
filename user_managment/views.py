@@ -280,3 +280,39 @@ class UserView(APIView):
         serializer = UserSerializer(request.user)
         return Response({'user': serializer.data}, status=status.HTTP_200_OK)
 
+
+class UpdateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        user = request.user
+        allowed_fields = ['first_name', 'middle_name', 'last_name', 'photo', 'title', 'bio']
+        for field in allowed_fields:
+            if field in request.data:
+                setattr(user, field, request.data.get(field))
+        user.save()
+        return Response({
+            'success': True,
+            'data': UserDetailSerializer(user).data,
+            'message': 'Profile updated successfully.'
+        }, status=status.HTTP_200_OK)
+
+
+class TeacherDetailView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, user_id):
+        try:
+            teacher = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"success": False, "message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Ensure role is teacher
+        role_name = (teacher.role.name.lower() if teacher.role else '')
+        if role_name not in ['teacher', 'instructor']:
+            return Response({"success": False, "message": "User is not a teacher."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'success': True,
+            'data': UserDetailSerializer(teacher).data,
+            'message': 'Teacher profile retrieved.'
+        }, status=status.HTTP_200_OK)
+

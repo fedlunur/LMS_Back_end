@@ -23,7 +23,11 @@ from courses.views import (
     get_student_progress_view,
     get_assignment_submissions_view,
     grade_assignment_view,
-    get_certificate_view
+    get_certificate_view,
+    list_course_modules_view,
+    list_module_lessons_view,
+    rate_course_view,
+    verify_certificate_view
 )
 from courses.constants import *
 from django.urls import path, include
@@ -99,10 +103,13 @@ urlpatterns = [
     # Course browsing endpoints (for all authenticated users)
     re_path(r'^api/published-courses/$', get_published_courses_view, name='published_courses'),
     re_path(r'^api/course-overview/(?P<course_id>\d+)/$', get_course_overview_view, name='course_overview'),
+    re_path(r'^api/course-modules/(?P<course_id>\d+)/$', list_course_modules_view, name='course_modules'),
+    re_path(r'^api/module-lessons/(?P<module_id>\d+)/$', list_module_lessons_view, name='module_lessons'),
     
     # Enrollment endpoints
     re_path(r'^api/enroll-course/(?P<course_id>\d+)/$', enroll_in_course_view, name='enroll_course'),
     re_path(r'^api/enrolled-courses/$', get_enrolled_courses_view, name='enrolled_courses'),
+    re_path(r'^api/rate-course/(?P<course_id>\d+)/$', rate_course_view, name='rate_course'),
     
     # Quiz endpoints
     re_path(r'^api/submit-quiz/(?P<lesson_id>\d+)/$', submit_quiz_view, name='submit_quiz'),
@@ -126,6 +133,11 @@ urlpatterns = [
     re_path(r'^api/assignment-submissions/(?P<lesson_id>\d+)/$', get_assignment_submissions_view, name='assignment_submissions'),
     re_path(r'^api/grade-assignment/(?P<submission_id>\d+)/$', grade_assignment_view, name='grade_assignment'),
     re_path(r'^api/certificate/(?P<enrollment_id>\d+)/$', get_certificate_view, name='get_certificate'),
+    re_path(r'^api/verify-certificate/(?P<certificate_number>[-A-Z0-9]+)/$', verify_certificate_view, name='verify_certificate'),
+
+    # User profile
+    re_path(r'^api/profile/update/$', UpdateProfileView.as_view(), name='update_profile'),
+    re_path(r'^api/teacher/(?P<user_id>\d+)/$', TeacherDetailView.as_view(), name='teacher_detail'),
     
     # Generics
     re_path("api/", include(router.urls)),

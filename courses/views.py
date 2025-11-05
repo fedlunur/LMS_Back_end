@@ -12,8 +12,9 @@ from lms_project.utils import *
 from .models import (
     Course, Enrollment, Lesson, Module, ModuleProgress,
     QuizAttempt, AssignmentSubmission, FinalCourseAssessment, AssessmentAttempt,
-    LessonProgress, AssignmentLesson, Certificate
+    LessonProgress, AssignmentLesson, Certificate, CourseRating
 )
+from django.db.models import Count
 
 class GenericModelViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
@@ -29,6 +30,13 @@ class GenericModelViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
+            sensitive = {
+                'enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt',
+                'assignmentsubmission', 'assessmentattempt', 'certificate',
+                'conversation', 'message'
+            }
+            if self.basename.lower() in sensitive:
+                return [IsAuthenticated()]
             return [AllowAny()]
         return [IsAuthenticated()]
 
@@ -129,12 +137,62 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         if serializer.is_valid():
+            # Owner checks for updates
+            model_name = self.basename.lower()
+            user = request.user
+            if not user.is_staff:
+                if model_name == 'course':
+                    if getattr(instance, 'instructor_id', None) != user.id:
+                        return self.failure_response("You are not allowed to modify this course.", status.HTTP_403_FORBIDDEN)
+                elif model_name in ['module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson', 'lessonresource', 'quizquestion', 'quizanswer', 'quizconfiguration']:
+                    course = None
+                    if hasattr(instance, 'course') and instance.course:
+                        course = instance.course
+                    elif hasattr(instance, 'module') and instance.module:
+                        course = instance.module.course
+                    elif hasattr(instance, 'lesson') and instance.lesson:
+                        course = instance.lesson.course
+                    if not course or course.instructor_id != user.id:
+                        return self.failure_response("You are not allowed to modify this content.", status.HTTP_403_FORBIDDEN)
+                elif model_name in ['enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt', 'assignmentsubmission', 'assessmentattempt', 'certificate']:
+                    owner_id = None
+                    if hasattr(instance, 'student_id'):
+                        owner_id = instance.student_id
+                    elif hasattr(instance, 'enrollment') and instance.enrollment:
+                        owner_id = instance.enrollment.student_id
+                    if owner_id and owner_id != user.id:
+                        return self.failure_response("You are not allowed to modify this record.", status.HTTP_403_FORBIDDEN)
             serializer.save()
             return self.success_response(serializer.data, "Updated successfully")
         return self.failure_response(serializer.errors)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        # Owner checks for deletion
+        model_name = self.basename.lower()
+        user = request.user
+        if not user.is_staff:
+            if model_name == 'course':
+                if getattr(instance, 'instructor_id', None) != user.id:
+                    return self.failure_response("You are not allowed to delete this course.", status.HTTP_403_FORBIDDEN)
+            elif model_name in ['module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson', 'lessonresource', 'quizquestion', 'quizanswer', 'quizconfiguration']:
+                course = None
+                if hasattr(instance, 'course') and instance.course:
+                    course = instance.course
+                elif hasattr(instance, 'module') and instance.module:
+                    course = instance.module.course
+                elif hasattr(instance, 'lesson') and instance.lesson:
+                    course = instance.lesson.course
+                if not course or course.instructor_id != user.id:
+                    return self.failure_response("You are not allowed to delete this content.", status.HTTP_403_FORBIDDEN)
+            elif model_name in ['enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt', 'assignmentsubmission', 'assessmentattempt', 'certificate']:
+                owner_id = None
+                if hasattr(instance, 'student_id'):
+                    owner_id = instance.student_id
+                elif hasattr(instance, 'enrollment') and instance.enrollment:
+                    owner_id = instance.enrollment.student_id
+                if owner_id and owner_id != user.id:
+                    return self.failure_response("You are not allowed to delete this record.", status.HTTP_403_FORBIDDEN)
         instance.delete()
         return self.success_response({}, "Deleted successfully")
         
@@ -952,4 +1010,126 @@ def get_student_analytics_view(request):
         },
         "message": "Student analytics retrieved successfully."
     }, status=status.HTTP_200_OK)
+
+
+# ------------- Aggregated Course Content and Lock State Endpoints ------------- #
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_course_modules_view(request, course_id):
+    try:
+        course = Course.objects.get(id=course_id, status='published')
+    except Course.DoesNotExist:
+        return Response({"success": False, "message": "Course not found or not published."}, status=status.HTTP_404_NOT_FOUND)
+
+    enrollment = Enrollment.objects.filter(student=request.user, course=course, payment_status='completed').first()
+    modules = Module.objects.filter(course=course).annotate(lesson_count=Count('lessons')).order_by('order')
+    data = []
+    for m in modules:
+        is_unlocked = False
+        if enrollment:
+            is_unlocked = is_module_accessible(request.user, m)
+        data.append({
+            'id': m.id,
+            'title': m.title,
+            'description': m.description,
+            'order': m.order,
+            'lesson_count': m.lesson_count,
+            'unlocked': is_unlocked,
+        })
+    return Response({"success": True, "data": data, "message": "Modules retrieved successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_module_lessons_view(request, module_id):
+    try:
+        module = Module.objects.select_related('course').get(id=module_id)
+    except Module.DoesNotExist:
+        return Response({"success": False, "message": "Module not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if module.course.status != 'published' and not request.user.is_staff and module.course.instructor_id != request.user.id:
+        return Response({"success": False, "message": "Module not accessible."}, status=status.HTTP_403_FORBIDDEN)
+
+    enrollment = Enrollment.objects.filter(student=request.user, course=module.course, payment_status='completed').first()
+    lessons = Lesson.objects.filter(module=module).order_by('order')
+    data = []
+    for lesson in lessons:
+        unlocked = False
+        if enrollment:
+            unlocked = is_lesson_accessible(request.user, lesson)
+        data.append({
+            'id': lesson.id,
+            'title': lesson.title,
+            'description': lesson.description,
+            'content_type': lesson.content_type,
+            'order': lesson.order,
+            'unlocked': unlocked,
+        })
+    return Response({"success": True, "data": data, "message": "Lessons retrieved successfully."}, status=status.HTTP_200_OK)
+
+
+# ------------- Ratings and Reviews ------------- #
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def rate_course_view(request, course_id):
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    enrollment = Enrollment.objects.filter(student=request.user, course=course, payment_status='completed').first()
+    if not enrollment or not enrollment.is_completed:
+        return Response({"success": False, "message": "You can rate a course only after completing it."}, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        rating_value = int(request.data.get('rating'))
+    except (TypeError, ValueError):
+        return Response({"success": False, "message": "Valid rating (1-5) is required."}, status=status.HTTP_400_BAD_REQUEST)
+    if rating_value < 1 or rating_value > 5:
+        return Response({"success": False, "message": "Rating must be between 1 and 5."}, status=status.HTTP_400_BAD_REQUEST)
+
+    review_title = request.data.get('review_title', '')
+    review_text = request.data.get('review_text', '')
+
+    rating_obj, created = CourseRating.objects.update_or_create(
+        course=course,
+        student=request.user,
+        defaults={
+            'enrollment': enrollment,
+            'rating': rating_value,
+            'review_title': review_title,
+            'review_text': review_text,
+            'is_verified_purchase': True,
+        }
+    )
+
+    ser = DynamicFieldSerializer(rating_obj, model_name='courserating')
+    return Response({"success": True, "data": ser.data, "message": "Rating submitted successfully."}, status=status.HTTP_200_OK)
+
+
+# ------------- Certificate Verification ------------- #
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def verify_certificate_view(request, certificate_number):
+    cert = Certificate.objects.filter(certificate_number=certificate_number).select_related('enrollment__student', 'enrollment__course').first()
+    if not cert:
+        return Response({"success": False, "message": "Certificate not found."}, status=status.HTTP_404_NOT_FOUND)
+    data = {
+        'certificate_number': cert.certificate_number,
+        'issued_date': cert.issued_date,
+        'grade': cert.grade,
+        'student': {
+            'id': cert.enrollment.student_id,
+            'name': cert.enrollment.student.get_full_name(),
+            'email': cert.enrollment.student.email,
+        },
+        'course': {
+            'id': cert.enrollment.course_id,
+            'title': cert.enrollment.course.title,
+        }
+    }
+    return Response({"success": True, "data": data, "message": "Certificate verified."}, status=status.HTTP_200_OK)
 
