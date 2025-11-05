@@ -49,12 +49,15 @@ class Course(models.Model):
     thumbnail = models.ImageField(upload_to="course_thumbnails/", null=True, blank=True)
     instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name="courses")
     status = models.CharField(max_length=10,choices=STATUS_CHOICES,default="draft")
+    objective = models.JSONField(default=list, blank=True)  # ["Build React apps", ...]
+    what_you_will_learn = models.JSONField(default=list, blank=True)
+    requirements = models.JSONField(default=list, blank=True)
     # Approval / moderation
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_courses")
     approved_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
-    issue_certificate=models.BooleanField(default=False)
+    issue_certificate = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -877,10 +880,10 @@ class CourseOverview(models.Model):
     completion_rate = models.FloatField(default=0.0)
     title = models.CharField(max_length=200, blank=True)
     subtitle = models.CharField(max_length=300, blank=True)
-    description = models.TextField(blank=True)
-    objective = models.JSONField(default=list, blank=True)  # ["Build React apps", ...]
-    what_you_will_learn = models.JSONField(default=list, blank=True)
-    requirements = models.JSONField(default=list, blank=True)
+    # description = models.TextField(blank=True)
+    # objective = models.JSONField(default=list, blank=True)  # ["Build React apps", ...]
+    # what_you_will_learn = models.JSONField(default=list, blank=True)
+    # requirements = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         return f"Overview for {self.course.title}"
