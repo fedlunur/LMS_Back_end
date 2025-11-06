@@ -1,33 +1,23 @@
-# admin.py
+# courses/admin.py
 from django.contrib import admin
-from django.contrib.admin import AdminSite
 from .models import (
-    # Core
     Category, Level, Course, Module, Lesson,
-    # Lesson Types
     VideoLesson, QuizLesson, AssignmentLesson, ArticleLesson,
-    # Resources & Attachments
     VideoLessonAttachment, ArticleLessonAttachment, ArticleLessonExternalLink,
     LessonResource, LessonAttachment,
-    # Quiz System
     QuizConfiguration, QuizQuestion, QuizAnswer, QuizAttempt, QuizResponse,
-    # Progress
     Enrollment, LessonProgress, ResourceProgress, ModuleProgress,
-    # Rewards & Engagement
     Certificate, CourseBadge, CourseQA, CourseResource, CourseAnnouncement,
-    # Checkpoints
     VideoCheckpointQuiz, VideoCheckpointResponse, CheckpointQuizResponse,
-    # Feedback & Comms
     CourseRating, Conversation, Message,
-    # Meta & Submissions
     CourseOverview, CourseFAQ, AssignmentSubmission,
-    # Final Assessment
-    FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer, AssessmentAttempt, AssessmentResponse,
+    FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer,
+    AssessmentAttempt, AssessmentResponse,
 )
 
 
 # ================================
-# INLINES (Quiz System - Only for QuizLesson)
+# INLINES – QUIZ (attached to Lesson)
 # ================================
 
 class QuizConfigurationInline(admin.StackedInline):
@@ -59,7 +49,10 @@ class QuizAnswerInline(admin.TabularInline):
     fields = ("answer_text", "answer_image", "is_correct", "order")
 
 
-# Other inlines...
+# ================================
+# OTHER INLINES
+# ================================
+
 class VideoLessonAttachmentInline(admin.TabularInline):
     model = VideoLessonAttachment
     extra = 1
@@ -86,7 +79,8 @@ class ResourceProgressInline(admin.TabularInline):
 class LessonProgressInline(admin.TabularInline):
     model = LessonProgress
     extra = 0
-    readonly_fields = ("progress", "completed", "first_accessed", "last_accessed", "completed_at", "time_spent")
+    readonly_fields = ("progress", "completed", "first_accessed", "last_accessed",
+                       "completed_at", "time_spent")
     inlines = [ResourceProgressInline]
 
 
@@ -118,7 +112,8 @@ class LevelAdmin(admin.ModelAdmin):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "category", "level", "price", "instructor", "status", "created_at")
+    list_display = ("id", "title", "category", "level", "price", "instructor",
+                    "status", "created_at")
     list_filter = ("category", "level", "status", "created_at")
     search_fields = ("title", "description", "slug")
     prepopulated_fields = {"slug": ("title",)}
@@ -142,7 +137,8 @@ class LessonAdmin(admin.ModelAdmin):
     search_fields = ("title", "description")
     ordering = ("course", "module", "order")
     autocomplete_fields = ("course", "module")
-    # No quiz inlines here — moved to QuizLessonAdmin
+    # Quiz inlines **stay here** – they belong to Lesson
+    inlines = [QuizConfigurationInline, QuizQuestionInline]
 
 
 @admin.register(VideoLesson)
@@ -159,31 +155,29 @@ class QuizLessonAdmin(admin.ModelAdmin):
     search_fields = ("lesson__title", "lesson__description")
     autocomplete_fields = ("lesson",)
 
-    # === QUIZ SETUP INLINES ===
-    inlines = [
-        QuizConfigurationInline,
-        QuizQuestionInline,
-    ]
-
     fieldsets = (
-        ("Lesson Link", {
-            "fields": ("lesson",),
-            "description": "<strong>Select a Lesson first, then configure the quiz below.</strong>"
-        }),
-        ("Quiz Type*", {
-            "fields": ("type",),
-            "description": "Choose quiz type. This determines behavior and question types available."
-        }),
-        ("Legacy Fields (Deprecated)", {
-            "fields": ("time_limit", "passing_score", "attempts", "randomize_questions", "show_correct_answers", "grading_policy", "questions"),
+        ("Lesson Link", {"fields": ("lesson",)}),
+        ("Quiz Type (required)", {"fields": ("type",)}),
+        ("Legacy Settings (use inlines in Lesson)", {
+            "fields": ("time_limit", "passing_score", "attempts",
+                       "randomize_questions", "show_correct_answers",
+                       "grading_policy", "questions"),
             "classes": ("collapse",),
-            "description": "Use the inlines below instead."
         }),
     )
 
     def question_count(self, obj):
         return QuizQuestion.objects.filter(lesson=obj.lesson).count() if obj.lesson else 0
     question_count.short_description = "Questions"
+
+    # Show current config as read-only info
+    def config_summary(self, obj):
+        cfg = getattr(obj.lesson, "quiz_config", None)
+        if cfg:
+            return (f"Time: {cfg.time_limit} min | Pass: {cfg.passing_score}% | "
+                    f"Attempts: {cfg.max_attempts} | Policy: {cfg.get_grading_policy_display()}")
+        return "-"
+    config_summary.short_description = "Current Config"
 
 
 @admin.register(AssignmentLesson)
@@ -205,6 +199,10 @@ class LessonResourceAdmin(admin.ModelAdmin):
     list_filter = ("type",)
     search_fields = ("title", "lesson__title")
 
+
+# ------------------------------------------------------------------ #
+# The rest of the admin registrations stay exactly the same as before
+# ------------------------------------------------------------------ #
 
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
@@ -291,7 +289,7 @@ class MessageAdmin(admin.ModelAdmin):
 
 
 # ================================
-# QUIZ SYSTEM (Standalone)
+# QUIZ SYSTEM (standalone)
 # ================================
 
 @admin.register(QuizQuestion)
@@ -302,7 +300,8 @@ class QuizQuestionAdmin(admin.ModelAdmin):
     inlines = [QuizAnswerInline]
 
     def question_text_snippet(self, obj):
-        return obj.question_text[:50] + ("..." if len(obj.question_text) > 50 else "")
+        txt = obj.question_text
+        return txt[:50] + ("..." if len(txt) > 50 else "")
     question_text_snippet.short_description = "Question"
 
 
@@ -347,7 +346,8 @@ class AssessmentQuestionAdmin(admin.ModelAdmin):
     inlines = [AssessmentAnswerInline]
 
     def question_text_snippet(self, obj):
-        return obj.question_text[:50] + ("..." if len(obj.question_text) > 50 else "")
+        txt = obj.question_text
+        return txt[:50] + ("..." if len(txt) > 50 else "")
     question_text_snippet.short_description = "Question"
 
 
