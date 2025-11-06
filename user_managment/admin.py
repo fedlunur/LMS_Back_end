@@ -30,8 +30,8 @@ admin.site.register(User, CustomUserAdmin)
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'slug')
-    search_fields = ('name','slug')
+    list_display = ('id', 'name')
+    search_fields = ('name',)
 
 @admin.register(UserRole)
 class UserRoleAdmin(admin.ModelAdmin):

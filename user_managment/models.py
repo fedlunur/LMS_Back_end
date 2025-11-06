@@ -51,16 +51,10 @@ class UserManager(BaseUserManager):
         return self.create_user(email, first_name, password=password, **extra_fields)
 
 class Role(models.Model):
-    name = models.CharField(max_length=140, unique=True)
-    slug = models.SlugField(max_length=140, unique=True, blank=True)
-    
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.name)
-        super().save(*args, **kwargs)
-
+    name = models.CharField(max_length=100, unique=True)
     def __str__(self):
-        return f'{self.name}'
+        return self.name
+
 
 class User(AbstractUser):
     first_name = models.CharField(max_length=255, null=False)
