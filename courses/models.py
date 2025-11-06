@@ -168,6 +168,13 @@ class Lesson(models.Model):
     def __str__(self):
         return f"{self.course.title} — {self.title}"
     
+    def calculate_total_marks(self):
+        """Calculate total marks for a quiz lesson"""
+        if self.content_type == Lesson.ContentType.QUIZ:
+            questions = QuizQuestion.objects.filter(lesson=self)
+            return sum(q.points for q in questions)
+        return 0
+    
 class VideoLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="video")
     video_file = models.FileField(upload_to='lesson_videos/', null=True, blank=True)
@@ -214,40 +221,136 @@ class QuizQuestion(models.Model):
         ('multiple-choice', 'Multiple Choice'),
         ('true-false', 'True/False'),
         ('fill-blank', 'Fill in Blank'),
-        ('drag-drop', 'Drag & Drop'),
+        ('drag-drop-text', 'Drag & Drop onto Text'),
+        ('drag-drop-image', 'Drag & Drop onto Image'),
+        ('drag-drop-matching', 'Drag & Drop Matching'),
+        ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
+        ('drag-drop-categorization', 'Drag & Drop Categorization'),
         ('short-answer', 'Short Answer'),
     ]
     
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_questions')
-    question_type = models.CharField(max_length=20, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    question_type = models.CharField(max_length=30, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
     question_text = models.TextField()
     question_image = models.ImageField(upload_to='quiz_questions/', null=True, blank=True)
     explanation = models.TextField(blank=True)
-    points = models.PositiveIntegerField(default=1)
+    points = models.PositiveIntegerField(default=1, help_text="Points the question carries (e.g., 5 marks, 3 marks)")
     order = models.PositiveIntegerField(default=0)
     
     # Fill in blank specific fields
-    blanks = models.JSONField(default=list, blank=True, help_text="List of correct answers for blanks")
+    blanks = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of correct answers for blanks. For multiple blanks, use list of strings."
+    )
     
-    # Drag and drop specific fields
-    drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items")
-    drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones")
-    drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings")
+    # Drag and drop onto text (Cloze) fields
+    cloze_text = models.TextField(
+        blank=True, 
+        help_text="Text with blanks marked (e.g., 'The largest planet is ___.')"
+    )
+    cloze_answers = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of correct answers for each blank in order"
+    )
+    cloze_options = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of draggable options for cloze questions"
+    )
+    
+    # Drag and drop onto image fields
+    background_image = models.ImageField(
+        upload_to='quiz_questions/drag_drop_images/', 
+        null=True, 
+        blank=True,
+        help_text="Background image for drag & drop onto image"
+    )
+    image_drop_zones = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of drop zones with coordinates: [{'id': 1, 'x': 100, 'y': 200, 'label': 'Nucleus'}, ...]"
+    )
+    image_drag_items = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of draggable items: [{'id': 1, 'text': 'Nucleus', 'image': 'url'}, ...]"
+    )
+    image_correct_mappings = models.JSONField(
+        default=dict, 
+        blank=True, 
+        help_text="Correct mappings: {'drag_item_id': 'drop_zone_id', ...}"
+    )
+    
+    # Drag and drop matching fields
+    matching_left_items = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Left side items: [{'id': 1, 'text': 'France', 'image': 'url'}, ...]"
+    )
+    matching_right_items = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Right side items: [{'id': 1, 'text': 'Paris', 'image': 'url'}, ...]"
+    )
+    matching_correct_pairs = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Correct pairs: [{'left_id': 1, 'right_id': 2}, ...]"
+    )
+    
+    # Drag and drop sequencing fields
+    sequencing_items = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Items to sequence: [{'id': 1, 'text': 'Step 1', 'image': 'url'}, ...]"
+    )
+    sequencing_correct_order = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Correct order as list of item IDs: [1, 3, 2, 4]"
+    )
+    
+    # Drag and drop categorization fields
+    categorization_items = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Items to categorize: [{'id': 1, 'text': 'Dog', 'image': 'url'}, ...]"
+    )
+    categorization_categories = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="Categories: [{'id': 1, 'name': 'Mammals', 'color': '#ff0000'}, ...]"
+    )
+    categorization_correct_mappings = models.JSONField(
+        default=dict, 
+        blank=True, 
+        help_text="Correct mappings: {'item_id': 'category_id', ...}"
+    )
+    
+    # Generic drag and drop fields (for backward compatibility)
+    drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items (deprecated)")
+    drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones (deprecated)")
+    drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings (deprecated)")
     
     # Image support for advanced question types
     option_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for multiple choice options")
-    drag_item_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for drag items")
-    drop_zone_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for drop zones")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         ordering = ['order', 'created_at']
-    
         verbose_name_plural = "QuizQuestion"
+    
     def __str__(self):
         return f"{self.lesson.title} - Question {self.order + 1}"
+    
+    @property
+    def total_marks(self):
+        """Calculate total marks for this question"""
+        return self.points
 
 
 class QuizAnswer(models.Model):
@@ -267,29 +370,44 @@ class QuizAnswer(models.Model):
 
 class QuizAttempt(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='quiz_attempt_student')
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_lesson')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_attempts')
     score = models.FloatField(default=0.0)  # Percentage score (0-100)
     total_questions = models.PositiveIntegerField(default=0)
     correct_answers = models.PositiveIntegerField(default=0)
-    completed_at = models.DateTimeField(auto_now_add=True)
+    total_points = models.FloatField(default=0.0)  # Total possible points
+    earned_points = models.FloatField(default=0.0)  # Points earned
+    passed = models.BooleanField(default=False)  # Whether the attempt passed
+    attempt_number = models.PositiveIntegerField(default=1)  # Which attempt this is (1st, 2nd, etc.)
+    started_at = models.DateTimeField(auto_now_add=True)  # When the attempt started
+    completed_at = models.DateTimeField(null=True, blank=True)  # When the attempt was completed
     time_taken = models.DurationField(null=True, blank=True)  # Time taken to complete
+    is_in_progress = models.BooleanField(default=True)  # Whether the attempt is still in progress
     
     class Meta:
         # Allow multiple attempts per student per lesson
-        ordering = ['-completed_at']
+        ordering = ['-completed_at', '-started_at']
         verbose_name_plural = "QuizAttempt"
+        indexes = [
+            models.Index(fields=['student', 'lesson', '-completed_at']),
+        ]
     
     def calculate_score(self):
-        """Calculate the score based on correct answers"""
-        if self.total_questions > 0:
-            self.score = (self.correct_answers / self.total_questions) * 100
+        """Calculate the score based on earned points vs total points"""
+        if self.total_points > 0:
+            self.score = (self.earned_points / self.total_points) * 100
         else:
             self.score = 0.0
+        
+        # Check if passed
+        quiz_config = getattr(self.lesson, 'quiz_config', None)
+        passing_score = quiz_config.passing_score if quiz_config else 70
+        self.passed = self.score >= passing_score
+        
         self.save()
         return self.score
     
     def __str__(self):
-        return f"{self.student.email} - {self.lesson.title} - {self.score}%"
+        return f"{self.student.email} - {self.lesson.title} - {self.score}% - Attempt {self.attempt_number}"
 
 
 class QuizConfiguration(models.Model):
@@ -302,20 +420,66 @@ class QuizConfiguration(models.Model):
     ]
     
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name='quiz_config')
-    time_limit = models.PositiveIntegerField(default=30, help_text="Time limit in minutes")
-    passing_score = models.PositiveIntegerField(default=70, help_text="Passing score percentage")
-    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum attempts allowed")
-    randomize_questions = models.BooleanField(default=False)
-    show_correct_answers = models.BooleanField(default=True)
-    grading_policy = models.CharField(max_length=20, choices=GRADING_POLICY_CHOICES, default='highest')
+    time_limit = models.PositiveIntegerField(
+        default=30, 
+        help_text="Time limit in minutes. Specify the time limit for the quiz."
+    )
+    passing_score = models.PositiveIntegerField(
+        default=70, 
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Minimum percentage required to pass (0-100)"
+    )
+    max_attempts = models.PositiveIntegerField(
+        default=3, 
+        help_text="Maximum number of attempts allowed"
+    )
+    randomize_questions = models.BooleanField(
+        default=False, 
+        help_text="Whether to show questions in random order"
+    )
+    show_correct_answers = models.BooleanField(
+        default=True, 
+        help_text="Display correct answers after submission"
+    )
+    grading_policy = models.CharField(
+        max_length=20, 
+        choices=GRADING_POLICY_CHOICES, 
+        default='highest',
+        help_text="How to calculate final score from multiple attempts"
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
     class Meta:
-       
         verbose_name_plural = "QuizConfiguration"
+    
     def __str__(self):
         return f"Quiz Config - {self.lesson.title}"
+    
+    def calculate_final_score(self, student):
+        """
+        Calculate final score based on grading policy.
+        Returns the final score (0-100) based on the selected grading policy.
+        """
+        attempts = QuizAttempt.objects.filter(
+            student=student,
+            lesson=self.lesson
+        ).order_by('completed_at')
+        
+        if not attempts.exists():
+            return 0.0
+        
+        if self.grading_policy == 'highest':
+            return max(attempt.score for attempt in attempts)
+        elif self.grading_policy == 'latest':
+            return attempts.last().score
+        elif self.grading_policy == 'average':
+            return sum(attempt.score for attempt in attempts) / attempts.count()
+        elif self.grading_policy == 'first':
+            return attempts.first().score
+        
+        return 0.0
     
 class AssignmentLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="assignment")
@@ -973,12 +1137,23 @@ class QuizResponse(models.Model):
     question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE, related_name='student_responses')
     answer = models.ForeignKey(QuizAnswer, on_delete=models.CASCADE, null=True, blank=True, related_name='selected_in_responses')
     answer_text = models.TextField(blank=True, help_text="For fill-in-blank or short answer questions")
+    
+    # Drag & drop response fields
+    drag_drop_response = models.JSONField(
+        default=dict, 
+        blank=True, 
+        help_text="For drag & drop questions: stores mappings, sequences, or categorizations"
+    )
+    
     is_correct = models.BooleanField(default=False)
     points_earned = models.FloatField(default=0.0)
     
     class Meta:
         unique_together = ['attempt', 'question']
         verbose_name_plural = "Quiz Responses"
+        indexes = [
+            models.Index(fields=['attempt', 'question']),
+        ]
     
     def __str__(self):
         return f"{self.attempt.student.email} - {self.question.question_text[:50]}"

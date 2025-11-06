@@ -11,6 +11,8 @@ from courses.views import (
     get_enrolled_courses_view,
     get_published_courses_view,
     get_course_overview_view,
+    list_course_lessons_view,
+    get_lesson_detail_view,
     submit_quiz_view,
     submit_assignment_view,
     submit_assignment_and_complete_view,
@@ -27,7 +29,14 @@ from courses.views import (
     list_course_modules_view,
     list_module_lessons_view,
     rate_course_view,
-    verify_certificate_view
+    verify_certificate_view,
+    # New quiz endpoints
+    start_quiz_attempt_view,
+    get_quiz_questions_view,
+    get_quiz_attempt_history_view,
+    create_quiz_view,
+    get_quiz_analytics_view,
+    get_all_student_attempts_view,
 )
 from courses.constants import *
 from django.urls import path, include
@@ -105,15 +114,25 @@ urlpatterns = [
     re_path(r'^api/course-overview/(?P<course_id>\d+)/$', get_course_overview_view, name='course_overview'),
     re_path(r'^api/course-modules/(?P<course_id>\d+)/$', list_course_modules_view, name='course_modules'),
     re_path(r'^api/module-lessons/(?P<module_id>\d+)/$', list_module_lessons_view, name='module_lessons'),
+    re_path(r'^api/course-lessons/(?P<course_id>\d+)/$', list_course_lessons_view, name='course_lessons'),
+    re_path(r'^api/lesson-detail/(?P<lesson_id>\d+)/$', get_lesson_detail_view, name='lesson_detail'),
     
     # Enrollment endpoints
     re_path(r'^api/enroll-course/(?P<course_id>\d+)/$', enroll_in_course_view, name='enroll_course'),
     re_path(r'^api/enrolled-courses/$', get_enrolled_courses_view, name='enrolled_courses'),
     re_path(r'^api/rate-course/(?P<course_id>\d+)/$', rate_course_view, name='rate_course'),
     
-    # Quiz endpoints
+    # Quiz endpoints - Students
+    re_path(r'^api/quiz/start/(?P<lesson_id>\d+)/$', start_quiz_attempt_view, name='start_quiz_attempt'),
+    re_path(r'^api/quiz/questions/(?P<lesson_id>\d+)/$', get_quiz_questions_view, name='get_quiz_questions'),
     re_path(r'^api/submit-quiz/(?P<lesson_id>\d+)/$', submit_quiz_view, name='submit_quiz'),
     re_path(r'^api/quiz-results/(?P<lesson_id>\d+)/$', get_quiz_results_view, name='quiz_results'),
+    re_path(r'^api/quiz/attempts/(?P<lesson_id>\d+)/$', get_quiz_attempt_history_view, name='quiz_attempt_history'),
+    
+    # Quiz endpoints - Teachers
+    re_path(r'^api/quiz/create/(?P<lesson_id>\d+)/$', create_quiz_view, name='create_quiz'),
+    re_path(r'^api/quiz/analytics/(?P<lesson_id>\d+)/$', get_quiz_analytics_view, name='quiz_analytics'),
+    re_path(r'^api/quiz/student-attempts/(?P<lesson_id>\d+)/$', get_all_student_attempts_view, name='all_student_attempts'),
     
     # Assignment endpoints
     re_path(r'^api/submit-assignment/(?P<lesson_id>\d+)/$', submit_assignment_view, name='submit_assignment'),

@@ -1,7 +1,103 @@
-from django.contrib import admin
-from .models import *
+# admin.py
 from django.contrib import admin
 from django.contrib.admin import AdminSite
+from .models import (
+    # Core
+    Category, Level, Course, Module, Lesson,
+    # Lesson Types
+    VideoLesson, QuizLesson, AssignmentLesson, ArticleLesson,
+    # Resources & Attachments
+    VideoLessonAttachment, ArticleLessonAttachment, ArticleLessonExternalLink,
+    LessonResource, LessonAttachment,
+    # Quiz System
+    QuizConfiguration, QuizQuestion, QuizAnswer, QuizAttempt, QuizResponse,
+    # Progress
+    Enrollment, LessonProgress, ResourceProgress, ModuleProgress,
+    # Rewards & Engagement
+    Certificate, CourseBadge, CourseQA, CourseResource, CourseAnnouncement,
+    # Checkpoints
+    VideoCheckpointQuiz, VideoCheckpointResponse, CheckpointQuizResponse,
+    # Feedback & Comms
+    CourseRating, Conversation, Message,
+    # Meta & Submissions
+    CourseOverview, CourseFAQ, AssignmentSubmission,
+    # Final Assessment
+    FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer, AssessmentAttempt, AssessmentResponse,
+)
+
+
+# ================================
+# INLINES (Quiz System - Only for QuizLesson)
+# ================================
+
+class QuizConfigurationInline(admin.StackedInline):
+    model = QuizConfiguration
+    can_delete = False
+    extra = 0
+    max_num = 1
+    fields = (
+        "time_limit", "passing_score", "max_attempts",
+        "randomize_questions", "show_correct_answers", "grading_policy"
+    )
+    verbose_name = "Quiz Configuration"
+    verbose_name_plural = "Quiz Configuration"
+
+
+class QuizQuestionInline(admin.TabularInline):
+    model = QuizQuestion
+    extra = 1
+    fields = ("question_type", "question_text", "points", "order")
+    show_change_link = True
+    ordering = ("order",)
+    verbose_name = "Question"
+    verbose_name_plural = "Questions"
+
+
+class QuizAnswerInline(admin.TabularInline):
+    model = QuizAnswer
+    extra = 2
+    fields = ("answer_text", "answer_image", "is_correct", "order")
+
+
+# Other inlines...
+class VideoLessonAttachmentInline(admin.TabularInline):
+    model = VideoLessonAttachment
+    extra = 1
+    readonly_fields = ("uploaded_at",)
+
+
+class ArticleLessonAttachmentInline(admin.TabularInline):
+    model = ArticleLessonAttachment
+    extra = 1
+    readonly_fields = ("uploaded_at",)
+
+
+class ArticleLessonExternalLinkInline(admin.TabularInline):
+    model = ArticleLessonExternalLink
+    extra = 1
+
+
+class ResourceProgressInline(admin.TabularInline):
+    model = ResourceProgress
+    extra = 0
+    readonly_fields = ("completed", "accessed_at", "completed_at")
+
+
+class LessonProgressInline(admin.TabularInline):
+    model = LessonProgress
+    extra = 0
+    readonly_fields = ("progress", "completed", "first_accessed", "last_accessed", "completed_at", "time_spent")
+    inlines = [ResourceProgressInline]
+
+
+class AssessmentAnswerInline(admin.TabularInline):
+    model = AssessmentAnswer
+    extra = 2
+
+
+# ================================
+# ADMIN CLASSES
+# ================================
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
@@ -12,15 +108,6 @@ class CategoryAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
     readonly_fields = ("created_at",)
 
-    fieldsets = (
-        (None, {
-            "fields": ("name", "slug", "description", "icon")
-        }),
-        ("Metadata", {
-            "fields": ("created_at",),
-            "classes": ("collapse",),
-        }),
-    )
 
 @admin.register(Level)
 class LevelAdmin(admin.ModelAdmin):
@@ -28,9 +115,10 @@ class LevelAdmin(admin.ModelAdmin):
     search_fields = ("name", "code")
     prepopulated_fields = {"code": ("name",)}
 
+
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "category", "level", "price", "instructor", "status", "created_at", "updated_at")
+    list_display = ("id", "title", "category", "level", "price", "instructor", "status", "created_at")
     list_filter = ("category", "level", "status", "created_at")
     search_fields = ("title", "description", "slug")
     prepopulated_fields = {"slug": ("title",)}
@@ -46,18 +134,16 @@ class ModuleAdmin(admin.ModelAdmin):
     ordering = ("course", "order")
     autocomplete_fields = ("course",)
 
+
 @admin.register(Lesson)
 class LessonAdmin(admin.ModelAdmin):
     list_display = ("title", "course", "module", "content_type", "order", "created_at")
     list_filter = ("course", "content_type", "created_at")
     search_fields = ("title", "description")
-    ordering = ("course", "order")
+    ordering = ("course", "module", "order")
     autocomplete_fields = ("course", "module")
+    # No quiz inlines here — moved to QuizLessonAdmin
 
-
-class VideoLessonAttachmentInline(admin.TabularInline):
-    model = VideoLessonAttachment
-    extra = 1
 
 @admin.register(VideoLesson)
 class VideoLessonAdmin(admin.ModelAdmin):
@@ -65,293 +151,252 @@ class VideoLessonAdmin(admin.ModelAdmin):
     search_fields = ("lesson__title",)
     inlines = [VideoLessonAttachmentInline]
 
+
 @admin.register(QuizLesson)
 class QuizLessonAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "type")
-    search_fields = ("lesson__title",)
-    # JSONField is editable in admin as raw JSON
+    list_display = ("lesson", "type", "time_limit", "passing_score", "attempts", "question_count")
+    list_filter = ("type",)
+    search_fields = ("lesson__title", "lesson__description")
+    autocomplete_fields = ("lesson",)
+
+    # === QUIZ SETUP INLINES ===
+    inlines = [
+        QuizConfigurationInline,
+        QuizQuestionInline,
+    ]
+
+    fieldsets = (
+        ("Lesson Link", {
+            "fields": ("lesson",),
+            "description": "<strong>Select a Lesson first, then configure the quiz below.</strong>"
+        }),
+        ("Quiz Type*", {
+            "fields": ("type",),
+            "description": "Choose quiz type. This determines behavior and question types available."
+        }),
+        ("Legacy Fields (Deprecated)", {
+            "fields": ("time_limit", "passing_score", "attempts", "randomize_questions", "show_correct_answers", "grading_policy", "questions"),
+            "classes": ("collapse",),
+            "description": "Use the inlines below instead."
+        }),
+    )
+
+    def question_count(self, obj):
+        return QuizQuestion.objects.filter(lesson=obj.lesson).count() if obj.lesson else 0
+    question_count.short_description = "Questions"
+
 
 @admin.register(AssignmentLesson)
 class AssignmentLessonAdmin(admin.ModelAdmin):
     list_display = ("lesson", "due_date", "max_score")
     search_fields = ("lesson__title",)
-    readonly_fields = ("rubric_criteria",)  # or keep editable as JSON
-
-
-class ArticleLessonAttachmentInline(admin.TabularInline):
-    model = ArticleLessonAttachment
-    extra = 1
-    fields = ("file", "uploaded_at")
-    readonly_fields = ("uploaded_at",)
-
-
-class ArticleLessonExternalLinkInline(admin.TabularInline):
-    model = ArticleLessonExternalLink
-    extra = 1
-    fields = ("title", "url", "description")
 
 
 @admin.register(ArticleLesson)
 class ArticleLessonAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "estimated_read_time", "attachments_title")
+    list_display = ("lesson", "title", "estimated_read_time")
     search_fields = ("lesson__title",)
     inlines = [ArticleLessonAttachmentInline, ArticleLessonExternalLinkInline]
 
 
 @admin.register(LessonResource)
 class LessonResourceAdmin(admin.ModelAdmin):
-    list_display = ('title', 'lesson', 'type', 'file')
-    list_filter = ('type',)
-    search_fields = ('title', 'lesson__title')
-    
-class ResourceProgressInline(admin.TabularInline):
-    model = ResourceProgress
-    extra = 0
-    readonly_fields = ("completed", "accessed_at", "completed_at")
-
-
-class LessonProgressInline(admin.TabularInline):
-    model = LessonProgress
-    extra = 0
-    readonly_fields = ("progress", "completed", "first_accessed", "last_accessed", "completed_at", "time_spent")
-    inlines = [ResourceProgressInline]
+    list_display = ("title", "lesson", "type")
+    list_filter = ("type",)
+    search_fields = ("title", "lesson__title")
 
 
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
-    list_display = (
-        "id", "student", "course", "progress", "is_completed", "enrolled_at", "last_accessed", "completed_at"
-    )
-    list_filter = ("is_completed", "payment_status", "enrolled_at", "last_accessed")
+    list_display = ("student", "course", "progress", "is_completed", "enrolled_at")
+    list_filter = ("is_completed", "payment_status")
     search_fields = ("student__email", "course__title")
-    date_hierarchy = "enrolled_at"
-    readonly_fields = ("progress", "is_completed", "completed_lessons", "completed_at", "enrolled_at", "last_accessed")
+    readonly_fields = ("progress", "is_completed", "enrolled_at", "last_accessed", "completed_at")
     inlines = [LessonProgressInline]
 
 
 @admin.register(LessonProgress)
 class LessonProgressAdmin(admin.ModelAdmin):
-    list_display = (
-        "enrollment", "lesson", "progress", "completed", "first_accessed", "last_accessed", "completed_at"
-    )
-    list_filter = ("completed", "first_accessed", "last_accessed")
+    list_display = ("enrollment", "lesson", "progress", "completed")
+    list_filter = ("completed",)
     search_fields = ("enrollment__student__email", "lesson__title")
-    readonly_fields = ("first_accessed", "last_accessed", "completed_at", "time_spent")
     inlines = [ResourceProgressInline]
 
 
 @admin.register(ResourceProgress)
 class ResourceProgressAdmin(admin.ModelAdmin):
-    list_display = (
-        "lesson_progress", "resource", "completed", "accessed_at", "completed_at"
-    )
-    list_filter = ("completed", "accessed_at")
-    search_fields = ("lesson_progress__enrollment__student__email", "resource__name")
-    readonly_fields = ("accessed_at", "completed_at")
+    list_display = ("lesson_progress", "resource", "completed")
+    list_filter = ("completed",)
 
 
 @admin.register(Certificate)
 class CertificateAdmin(admin.ModelAdmin):
-    list_display = ("enrollment", "certificate_number", "issued_date", "grade")
-    search_fields = ("certificate_number", "enrollment__student__email", "enrollment__course__title")
-    list_filter = ("grade", "issued_date")
+    list_display = ("enrollment", "certificate_number", "issued_date")
+    search_fields = ("certificate_number", "enrollment__student__email")
     readonly_fields = ("certificate_number", "issued_date")
 
 
 @admin.register(CourseBadge)
 class CourseBadgeAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "badge_type", "is_active", "awarded_at", "expires_at")
+    list_display = ("course", "badge_type", "is_active")
     list_filter = ("badge_type", "is_active")
-    search_fields = ("course__title",)
 
 
 @admin.register(CourseQA)
 class CourseQAAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "student", "question_title", "is_answered", "is_pinned", "created_at")
-    list_filter = ("is_answered", "is_pinned", "is_public")
-    search_fields = ("question_title", "question_text")
+    list_display = ("course", "student", "question_title", "is_answered")
+    list_filter = ("is_answered", "is_pinned")
 
 
 @admin.register(CourseResource)
 class CourseResourceAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "title", "resource_type", "is_public", "order")
+    list_display = ("course", "title", "resource_type", "is_public")
     list_filter = ("resource_type", "is_public")
 
 
 @admin.register(CourseAnnouncement)
 class CourseAnnouncementAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "instructor", "title", "priority", "is_published", "is_pinned", "published_at")
-    list_filter = ("priority", "is_published", "is_pinned")
-    search_fields = ("title", "content")
-
-
-@admin.register(CheckpointQuizResponse)
-class CheckpointQuizResponseAdmin(admin.ModelAdmin):
-    list_display = ("id", "student", "lesson", "is_correct", "responded_at")
-    list_filter = ("is_correct", "lesson")
-    search_fields = ("student__email", "lesson__title")
+    list_display = ("course", "title", "priority", "is_published")
+    list_filter = ("priority", "is_published")
 
 
 @admin.register(VideoCheckpointQuiz)
 class VideoCheckpointQuizAdmin(admin.ModelAdmin):
-    list_display = ("id", "lesson", "question_text", "question_type", "timestamp_seconds")
-    list_filter = ("question_type", "lesson")
-    search_fields = ("question_text",)
+    list_display = ("lesson", "question_text", "timestamp_seconds")
+    list_filter = ("lesson",)
 
 
 @admin.register(VideoCheckpointResponse)
 class VideoCheckpointResponseAdmin(admin.ModelAdmin):
-    list_display = ("id", "student", "checkpoint_quiz", "lesson", "is_correct", "responded_at")
-    list_filter = ("is_correct", "lesson")
-    search_fields = ("student__email", "lesson__title")
+    list_display = ("student", "checkpoint_quiz", "is_correct")
+    list_filter = ("is_correct",)
 
 
 @admin.register(CourseRating)
 class CourseRatingAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "student", "rating", "is_verified_purchase", "is_public", "is_approved", "created_at")
-    list_filter = ("rating", "is_verified_purchase", "is_public", "is_approved")
-    search_fields = ("student__email", "course__title")
+    list_display = ("course", "student", "rating", "is_approved")
+    list_filter = ("rating", "is_approved")
 
 
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
-    list_display = ("id", "teacher", "student", "course", "last_message_at")
-    search_fields = ("teacher__email", "student__email", "course__title")
+    list_display = ("teacher", "student", "course", "last_message_at")
+    search_fields = ("teacher__email", "student__email")
 
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("id", "conversation", "sender", "receiver", "message_type", "sent_at", "is_read")
-    list_filter = ("message_type", "is_read")
-    search_fields = ("content", "sender__email", "receiver__email")
+    list_display = ("conversation", "sender", "sent_at", "is_read")
+    list_filter = ("is_read", "message_type")
 
 
-# ----------------------------
-# Quiz-related Models
-# ----------------------------
-
-class QuizAnswerInline(admin.TabularInline):
-    model = QuizAnswer
-    extra = 2
-
+# ================================
+# QUIZ SYSTEM (Standalone)
+# ================================
 
 @admin.register(QuizQuestion)
 class QuizQuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "lesson", "question_type", "question_text_snippet", "points", "order")
+    list_display = ("lesson", "question_type", "question_text_snippet", "points")
     list_filter = ("question_type", "lesson")
     search_fields = ("question_text",)
     inlines = [QuizAnswerInline]
 
     def question_text_snippet(self, obj):
-        return obj.question_text[:50]
+        return obj.question_text[:50] + ("..." if len(obj.question_text) > 50 else "")
     question_text_snippet.short_description = "Question"
 
 
 @admin.register(QuizAnswer)
 class QuizAnswerAdmin(admin.ModelAdmin):
-    list_display = ("id", "question", "answer_text", "is_correct", "order")
+    list_display = ("question", "answer_text", "is_correct")
     list_filter = ("is_correct",)
-    search_fields = ("answer_text", "question__question_text")
 
 
 @admin.register(QuizAttempt)
 class QuizAttemptAdmin(admin.ModelAdmin):
-    list_display = ("id", "student", "lesson", "score", "total_questions", "correct_answers", "completed_at")
-    list_filter = ("lesson",)
-    search_fields = ("student__email", "lesson__title")
+    list_display = ("student", "lesson", "score", "passed", "attempt_number")
+    list_filter = ("passed", "lesson")
 
 
 @admin.register(QuizConfiguration)
 class QuizConfigurationAdmin(admin.ModelAdmin):
-    list_display = ("id", "lesson", "time_limit", "passing_score", "max_attempts", "grading_policy")
-    list_filter = ("grading_policy",)
-    search_fields = ("lesson__title",)    
-    
-
-@admin.register(CourseOverview)
-class CourseOverviewAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "title", "subtitle", "total_enrollments", "average_rating", "completion_rate")
-    search_fields = ("course__title",)
-    readonly_fields = ("total_enrollments", "average_rating", "completion_rate")
-
-@admin.register(CourseFAQ)
-class CourseFAQAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "question", "answer")
-    search_fields = ("course__title", "question")
-
-
-# ============ New Models Admin ============
-
-@admin.register(LessonAttachment)
-class LessonAttachmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "lesson", "title", "uploaded_at")
-    search_fields = ("lesson__title", "title")
-    list_filter = ("uploaded_at",)
+    list_display = ("lesson", "time_limit", "passing_score", "max_attempts")
+    search_fields = ("lesson__title",)
 
 
 @admin.register(QuizResponse)
 class QuizResponseAdmin(admin.ModelAdmin):
-    list_display = ("id", "attempt", "question", "is_correct", "points_earned")
+    list_display = ("attempt", "question", "is_correct")
     list_filter = ("is_correct",)
-    search_fields = ("attempt__student__email", "question__question_text")
 
 
-@admin.register(AssignmentSubmission)
-class AssignmentSubmissionAdmin(admin.ModelAdmin):
-    list_display = ("id", "student", "lesson", "status", "score", "max_score", "submitted_at", "is_late")
-    list_filter = ("status", "is_late", "submitted_at")
-    search_fields = ("student__email", "lesson__title")
-    readonly_fields = ("submitted_at", "is_late", "attempt_number", "created_at", "updated_at")
-
-
-@admin.register(ModuleProgress)
-class ModuleProgressAdmin(admin.ModelAdmin):
-    list_display = ("id", "enrollment", "module", "progress", "completed", "completed_at")
-    list_filter = ("completed",)
-    search_fields = ("enrollment__student__email", "module__title")
-    readonly_fields = ("progress", "completed", "completed_at", "first_accessed", "last_accessed")
-
+# ================================
+# FINAL ASSESSMENT
+# ================================
 
 @admin.register(FinalCourseAssessment)
 class FinalCourseAssessmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "course", "title", "passing_score", "max_attempts", "is_active")
+    list_display = ("course", "title", "passing_score", "is_active")
     list_filter = ("is_active",)
-    search_fields = ("course__title", "title")
-
-
-class AssessmentAnswerInline(admin.TabularInline):
-    model = AssessmentAnswer
-    extra = 2
 
 
 @admin.register(AssessmentQuestion)
 class AssessmentQuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "assessment", "question_type", "question_text_snippet", "points", "order")
-    list_filter = ("question_type", "assessment")
-    search_fields = ("question_text",)
+    list_display = ("assessment", "question_type", "question_text_snippet", "points")
+    list_filter = ("question_type",)
     inlines = [AssessmentAnswerInline]
 
     def question_text_snippet(self, obj):
-        return obj.question_text[:50]
+        return obj.question_text[:50] + ("..." if len(obj.question_text) > 50 else "")
     question_text_snippet.short_description = "Question"
 
 
 @admin.register(AssessmentAnswer)
 class AssessmentAnswerAdmin(admin.ModelAdmin):
-    list_display = ("id", "question", "answer_text", "is_correct", "order")
-    list_filter = ("is_correct",)
-    search_fields = ("answer_text", "question__question_text")
+    list_display = ("question", "answer_text", "is_correct")
 
 
 @admin.register(AssessmentAttempt)
 class AssessmentAttemptAdmin(admin.ModelAdmin):
-    list_display = ("id", "student", "assessment", "score", "passed", "attempt_number", "completed_at")
-    list_filter = ("passed", "attempt_number")
-    search_fields = ("student__email", "assessment__course__title")
+    list_display = ("student", "assessment", "score", "passed")
+    list_filter = ("passed",)
 
 
 @admin.register(AssessmentResponse)
 class AssessmentResponseAdmin(admin.ModelAdmin):
-    list_display = ("id", "attempt", "question", "is_correct", "points_earned")
+    list_display = ("attempt", "question", "is_correct")
     list_filter = ("is_correct",)
-    search_fields = ("attempt__student__email", "question__question_text")
+
+
+# ================================
+# ATTACHMENTS & SUBMISSIONS
+# ================================
+
+@admin.register(LessonAttachment)
+class LessonAttachmentAdmin(admin.ModelAdmin):
+    list_display = ("lesson", "title", "uploaded_at")
+    list_filter = ("uploaded_at",)
+
+
+@admin.register(AssignmentSubmission)
+class AssignmentSubmissionAdmin(admin.ModelAdmin):
+    list_display = ("student", "lesson", "status", "score", "is_late")
+    list_filter = ("status", "is_late")
+
+
+@admin.register(ModuleProgress)
+class ModuleProgressAdmin(admin.ModelAdmin):
+    list_display = ("enrollment", "module", "progress", "completed")
+    list_filter = ("completed",)
+
+
+@admin.register(CourseOverview)
+class CourseOverviewAdmin(admin.ModelAdmin):
+    list_display = ("course", "total_enrollments", "average_rating")
+    readonly_fields = ("total_enrollments", "average_rating", "completion_rate")
+
+
+@admin.register(CourseFAQ)
+class CourseFAQAdmin(admin.ModelAdmin):
+    list_display = ("course", "question")
+    search_fields = ("question",)

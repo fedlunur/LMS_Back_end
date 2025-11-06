@@ -7,7 +7,7 @@ from user_managment.serializers import UserDetailSerializer
 # Import your attachment models
 from courses.models import *  # Add more if needed
 
-
+# ----------------- WRITABLE NESTED FIELD -----------------
 class WritableNestedField(serializers.PrimaryKeyRelatedField):
     def __init__(self, nested_serializer_class, **kwargs):
         self.nested_serializer_class = nested_serializer_class
@@ -27,52 +27,60 @@ class WritableNestedField(serializers.PrimaryKeyRelatedField):
             return value.pk
         return self.nested_serializer_class(value, context=self.context).data
 
+# ----------------- UTILITY TO NORMALIZE MODEL NAMES -----------------
+def normalize_model_name(name: str) -> str:
+    """Remove underscores and lowercase to match model_mapping keys"""
+    return name.replace("_", "").lower()
 
-# Automatically map all models in 'courses' app
+# ----------------- GET ALL MODELS IN COURSES APP -----------------
 all_models = apps.get_app_config('courses').get_models()
 model_mapping = {model.__name__.lower(): model for model in all_models}
 
-# Define which lesson types have attachments
+# ----------------- LESSON TYPES WITH ATTACHMENTS -----------------
 LESSON_TYPES_WITH_ATTACHMENTS = ["VideoLesson", "ArticleLesson", "QuizLesson", "AssignmentLesson"]
 
-
+# ----------------- DYNAMIC FIELD SERIALIZER -----------------
 class DynamicFieldSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = None
+        fields = "__all__"
+
     def __init__(self, *args, **kwargs):
         model_name = kwargs.pop("model_name", None)
         if not model_name:
             super().__init__(*args, **kwargs)
             return
 
-        model_name_lower = model_name.lower()
-        model = model_mapping.get(model_name_lower)
+        normalized_name = normalize_model_name(model_name)
+        model = model_mapping.get(normalized_name)
         if not model:
-            raise ValueError(f"Invalid model name: {model_name}")
+            raise ValueError(f"Invalid model name: {model_name} (normalized: {normalized_name})")
 
         self.Meta.model = model
         self.Meta.fields = "__all__"
         super().__init__(*args, **kwargs)
 
-        # Add model properties as read-only fields
+        # ----------------- ADD MODEL PROPERTIES AS READ-ONLY -----------------
         for attr_name in dir(model):
             attr = getattr(model, attr_name, None)
             if isinstance(attr, property):
                 self.fields[attr_name] = serializers.ReadOnlyField()
 
-        # Handle ForeignKey fields
+        # ----------------- HANDLE FOREIGN KEYS -----------------
         for f in model._meta.get_fields():
             if isinstance(f, ForeignKey):
                 self.fields[f.name] = serializers.PrimaryKeyRelatedField(
                     queryset=f.related_model.objects.all()
                 )
 
-        # Handle reverse relations for attachments and external links if it's a lesson type
+        # ----------------- HANDLE ATTACHMENTS & EXTERNAL LINKS -----------------
         if model.__name__ in LESSON_TYPES_WITH_ATTACHMENTS:
             for f in model._meta.get_fields():
                 if isinstance(f, ManyToOneRel):
                     related_model = f.related_model
                     related_name = f.get_accessor_name()
-                    
-                    # Handle attachments
+
+                    # Attachments
                     if "attachment" in related_model.__name__.lower() or f.name == "attachments":
                         class AttachmentSerializer(serializers.ModelSerializer):
                             class Meta:
@@ -80,7 +88,7 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                                 fields = ["id", "file", "uploaded_at"] if hasattr(related_model, "file") else "__all__"
                         self.fields[related_name] = AttachmentSerializer(many=True, read_only=True)
 
-                    # Handle external links
+                    # External links
                     elif "externallink" in related_model.__name__.lower() or f.name == "external_links_items":
                         class ExternalLinkSerializer(serializers.ModelSerializer):
                             class Meta:
@@ -88,11 +96,7 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                                 fields = ["id", "title", "url", "description"]
                         self.fields[related_name] = ExternalLinkSerializer(many=True, read_only=True)
 
-    class Meta:
-        model = None
-        fields = "__all__"
-
-    # ----------------- CREATE & UPDATE -----------------
+    # ----------------- CREATE -----------------
     def create(self, validated_data):
         model = self.Meta.model
         attachments = validated_data.pop("attachments", None)
@@ -103,16 +107,16 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                 lesson=lesson_instance,
                 defaults=validated_data
             )
-            if attachments:
-                if hasattr(obj, "attachments"):
-                    obj.attachments.all().delete()
-                    for f in attachments:
-                        related_model = obj._meta.get_field("attachments").related_model
-                        related_model.objects.create(**{obj._meta.model_name: obj, "file": f})
+            if attachments and hasattr(obj, "attachments"):
+                obj.attachments.all().delete()
+                for f in attachments:
+                    related_model = obj._meta.get_field("attachments").related_model
+                    related_model.objects.create(**{obj._meta.model_name: obj, "file": f})
             return obj
 
         return super().create(validated_data)
 
+    # ----------------- UPDATE -----------------
     def update(self, instance, validated_data):
         model = self.Meta.model
         attachments = validated_data.pop("attachments", None)
