@@ -64,6 +64,7 @@ import traceback
 #         return data  # Returning the cleaned data
 class UserRegister(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         print("📌 Incoming request data:", request.data)  # Log request data

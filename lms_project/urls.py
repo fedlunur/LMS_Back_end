@@ -111,6 +111,7 @@ urlpatterns = [
     
     # Course browsing endpoints (for all authenticated users)
     re_path(r'^api/published-courses/$', get_published_courses_view, name='published_courses'),
+    re_path(r'^api/courses-published/$', get_published_courses_view, name='published_courses_legacy'),
     re_path(r'^api/course-overview/(?P<course_id>\d+)/$', get_course_overview_view, name='course_overview'),
     re_path(r'^api/course-modules/(?P<course_id>\d+)/$', list_course_modules_view, name='course_modules'),
     re_path(r'^api/module-lessons/(?P<module_id>\d+)/$', list_module_lessons_view, name='module_lessons'),
