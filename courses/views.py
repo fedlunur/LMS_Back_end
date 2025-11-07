@@ -1571,8 +1571,13 @@ def list_module_lessons_view(request, module_id):
     data = []
     for lesson in lessons:
         unlocked = False
+        is_completed = False
         if enrollment:
             unlocked = is_lesson_accessible(request.user, lesson)
+            # Query for LessonProgress for this enrollment and lesson
+            lp = LessonProgress.objects.filter(enrollment=enrollment, lesson=lesson).first()
+            if lp:
+                is_completed = lp.completed
         data.append({
             'id': lesson.id,
             'title': lesson.title,
@@ -1580,6 +1585,7 @@ def list_module_lessons_view(request, module_id):
             'content_type': lesson.content_type,
             'order': lesson.order,
             'unlocked': unlocked,
+            'is_completed': is_completed,
         })
     return Response({"success": True, "data": data, "message": "Lessons retrieved successfully."}, status=status.HTTP_200_OK)
 

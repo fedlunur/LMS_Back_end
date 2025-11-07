@@ -33,14 +33,6 @@ class QuizConfigurationInline(admin.StackedInline):
     verbose_name_plural = "Quiz Configuration"
 
 
-class QuizQuestionInline(admin.TabularInline):
-    model = QuizQuestion
-    extra = 1
-    fields = ("question_type", "question_text", "points", "order")
-    show_change_link = True
-    ordering = ("order",)
-    verbose_name = "Question"
-    verbose_name_plural = "Questions"
 
 
 class QuizAnswerInline(admin.TabularInline):
@@ -48,6 +40,16 @@ class QuizAnswerInline(admin.TabularInline):
     extra = 2
     fields = ("answer_text", "answer_image", "is_correct", "order")
 
+class QuizQuestionInline(admin.TabularInline):
+    model = QuizQuestion
+    extra = 1
+
+    def save_new_objects(self, commit=True):
+        # For Django >= 3.0, may have to override save_related instead
+        for obj in self.new_objects:
+            if not obj.lesson_id and obj.quiz_lesson:
+                obj.lesson = obj.quiz_lesson.lesson
+            obj.save()
 
 # ================================
 # OTHER INLINES
@@ -150,34 +152,40 @@ class VideoLessonAdmin(admin.ModelAdmin):
 
 @admin.register(QuizLesson)
 class QuizLessonAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "type", "time_limit", "passing_score", "attempts", "question_count")
+    list_display = ("id", "lesson", "type", "time_limit", "passing_score", "attempts", "question_count")
     list_filter = ("type",)
     search_fields = ("lesson__title", "lesson__description")
     autocomplete_fields = ("lesson",)
+    inlines = [QuizQuestionInline]
 
     fieldsets = (
         ("Lesson Link", {"fields": ("lesson",)}),
         ("Quiz Type (required)", {"fields": ("type",)}),
-        ("Legacy Settings (use inlines in Lesson)", {
-            "fields": ("time_limit", "passing_score", "attempts",
-                       "randomize_questions", "show_correct_answers",
-                       "grading_policy", "questions"),
-            "classes": ("collapse",),
+        ("Settings", {
+            "fields": (
+                "time_limit",
+                "passing_score",
+                "attempts",
+                "randomize_questions",
+                "show_correct_answers",
+                "grading_policy",
+            ),
         }),
     )
 
     def question_count(self, obj):
-        return QuizQuestion.objects.filter(lesson=obj.lesson).count() if obj.lesson else 0
+        return obj.questions.count()
     question_count.short_description = "Questions"
 
-    # Show current config as read-only info
-    def config_summary(self, obj):
-        cfg = getattr(obj.lesson, "quiz_config", None)
-        if cfg:
-            return (f"Time: {cfg.time_limit} min | Pass: {cfg.passing_score}% | "
-                    f"Attempts: {cfg.max_attempts} | Policy: {cfg.get_grading_policy_display()}")
-        return "-"
-    config_summary.short_description = "Current Config"
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for obj in instances:
+            if isinstance(obj, QuizQuestion):
+                # Auto-link question.lesson to quiz_lesson.lesson
+                if obj.quiz_lesson and not obj.lesson:
+                    obj.lesson = obj.quiz_lesson.lesson
+            obj.save()
+        formset.save_m2m()
 
 
 @admin.register(AssignmentLesson)

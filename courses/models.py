@@ -203,19 +203,44 @@ class VideoLessonAttachment(models.Model):
     def __str__(self):
         return f"{self.video_lesson.lesson.title} — {self.file.name}"
 
-
 class QuizLesson(models.Model):
-    lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="quiz")
-    type = models.CharField(max_length=50, default="multiple-choice")
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+        ('fill-blank', 'Fill in Blank'),
+        ('drag-drop-text', 'Drag & Drop onto Text'),
+        ('drag-drop-image', 'Drag & Drop onto Image'),
+        ('drag-drop-matching', 'Drag & Drop Matching'),
+        ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
+        ('drag-drop-categorization', 'Drag & Drop Categorization'),
+        ('short-answer', 'Short Answer'),
+    ]
+
+    lesson = models.OneToOneField(
+        Lesson,
+        on_delete=models.CASCADE,
+        related_name="quiz"
+    )
+    type = models.CharField(
+        max_length=50,
+        choices=QUESTION_TYPE_CHOICES,
+        default="multiple-choice"
+    )
     time_limit = models.PositiveIntegerField(default=30)  # minutes
     passing_score = models.PositiveIntegerField(default=70)
     attempts = models.PositiveIntegerField(default=3)
     randomize_questions = models.BooleanField(default=False)
     show_correct_answers = models.BooleanField(default=True)
     grading_policy = models.CharField(max_length=20, default="highest")
-    questions =  models.JSONField(default=list, blank=True)  # store question objects like TS template
+
     class Meta:
         verbose_name_plural = "QuizLesson"
+
+    def __str__(self):
+        return f"Quiz - {self.lesson.title}"
+
+    
+    
 class QuizQuestion(models.Model):
     QUESTION_TYPE_CHOICES = [
         ('multiple-choice', 'Multiple Choice'),
@@ -230,6 +255,7 @@ class QuizQuestion(models.Model):
     ]
     
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_questions')
+    quiz_lesson = models.ForeignKey(QuizLesson, on_delete=models.CASCADE, related_name='questions', null=True, blank=True)
     question_type = models.CharField(max_length=30, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
     question_text = models.TextField()
     question_image = models.ImageField(upload_to='quiz_questions/', null=True, blank=True)
