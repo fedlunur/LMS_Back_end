@@ -923,7 +923,17 @@ def start_quiz_attempt_view(request, lesson_id):
     """
     Start a new quiz attempt for a student.
     """
-    from .UtilMethods import start_quiz_attempt
+    from .UtilMethods import start_quiz_attempt, is_lesson_accessible
+    # Ensure lesson is unlocked before starting
+    try:
+        lesson_obj = Lesson.objects.get(id=lesson_id)
+        if not is_lesson_accessible(request.user, lesson_obj):
+            return Response({
+                "success": False,
+                "message": "This quiz is locked. Please complete the previous lesson first."
+            }, status=status.HTTP_403_FORBIDDEN)
+    except Lesson.DoesNotExist:
+        return Response({"success": False, "message": "Lesson not found."}, status=status.HTTP_404_NOT_FOUND)
     success, message, attempt_data = start_quiz_attempt(request.user, lesson_id)
     if success:
         return Response({
@@ -937,13 +947,12 @@ def start_quiz_attempt_view(request, lesson_id):
             "message": message
         }, status=status.HTTP_400_BAD_REQUEST)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_quiz_questions_view(request, lesson_id):
     """
     Get quiz questions for a lesson (with randomization if enabled).
-    For students only - excludes correct answers.
+    For students only - excludes correct answers and internal settings.
     """
     try:
         lesson = Lesson.objects.get(id=lesson_id)
@@ -960,6 +969,13 @@ def get_quiz_questions_view(request, lesson_id):
                 "success": False,
                 "message": "This lesson is not a quiz."
             }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure unlock
+        if not is_lesson_accessible(request.user, lesson):
+            return Response({
+                "success": False,
+                "message": "This quiz is locked. Please complete the previous lesson first."
+            }, status=status.HTTP_403_FORBIDDEN)
         
         # Get quiz configuration
         quiz_config = getattr(lesson, 'quiz_config', None)
@@ -975,59 +991,71 @@ def get_quiz_questions_view(request, lesson_id):
         question_data = []
         for q in questions:
             q_data = DynamicFieldSerializer(q, model_name="quizquestion").data
-            
-            # Remove correct answer information for students
-            if q.question_type in ['multiple-choice', 'true-false']:
-                # Include answers but mark is_correct as None
-                answers = []
-                for ans in q.answers.all():
-                    ans_data = DynamicFieldSerializer(ans, model_name="quizanswer").data
-                    ans_data['is_correct'] = None  # Hide correct answer
-                    answers.append(ans_data)
-                q_data['answers'] = answers
-            elif q.question_type == 'fill-blank':
-                q_data['blanks'] = None  # Hide correct answers
-            elif 'drag-drop' in q.question_type:
-                # Hide correct mappings
-                if 'cloze_answers' in q_data:
-                    q_data['cloze_answers'] = None
-                if 'image_correct_mappings' in q_data:
-                    q_data['image_correct_mappings'] = None
-                if 'matching_correct_pairs' in q_data:
-                    q_data['matching_correct_pairs'] = None
-                if 'sequencing_correct_order' in q_data:
-                    q_data['sequencing_correct_order'] = None
-                if 'categorization_correct_mappings' in q_data:
-                    q_data['categorization_correct_mappings'] = None
-            
+            q_type = q.question_type
+
+            # Structure per question type
+            if q_type in ['multiple-choice', 'true-false']:
+                q_data['answers'] = [{'id': ans.id, 'answer_text': ans.answer_text} for ans in q.answers.all()]
+                # Remove backend-only fields
+                for field in [
+                    'blanks', 'cloze_text', 'cloze_answers', 'cloze_options', 'background_image',
+                    'image_drop_zones', 'image_drag_items', 'image_correct_mappings',
+                    'matching_left_items', 'matching_right_items', 'matching_correct_pairs',
+                    'sequencing_items', 'sequencing_correct_order', 'categorization_items',
+                    'categorization_categories', 'categorization_correct_mappings',
+                    'drag_items', 'drop_zones', 'drag_drop_mappings', 'option_images'
+                ]:
+                    q_data.pop(field, None)
+
+            elif q_type == 'fill-blank':
+                q_data['blanks_count'] = len(q.blanks) if hasattr(q, 'blanks') and q.blanks else 1
+                for field in [
+                    'answers', 'blanks', 'cloze_text', 'cloze_answers', 'cloze_options',
+                    'background_image', 'image_drop_zones', 'image_drag_items', 'image_correct_mappings',
+                    'matching_left_items', 'matching_right_items', 'matching_correct_pairs',
+                    'sequencing_items', 'sequencing_correct_order', 'categorization_items',
+                    'categorization_categories', 'categorization_correct_mappings',
+                    'drag_items', 'drop_zones', 'drag_drop_mappings', 'option_images'
+                ]:
+                    q_data.pop(field, None)
+
+            elif any(t in q_type for t in ['drag-drop', 'matching', 'sequencing', 'categorization']):
+                for field in [
+                    'cloze_answers', 'image_correct_mappings', 'matching_correct_pairs',
+                    'sequencing_correct_order', 'categorization_correct_mappings',
+                    'answers', 'blanks'
+                ]:
+                    q_data.pop(field, None)
+            else:
+                for field in [
+                    'answers', 'blanks', 'cloze_answers', 'image_correct_mappings',
+                    'matching_correct_pairs', 'sequencing_correct_order', 'categorization_correct_mappings'
+                ]:
+                    q_data.pop(field, None)
+
             question_data.append(q_data)
         
-        # Get quiz config
-        time_limit = quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30)
-        passing_score = quiz_config.passing_score if quiz_config else (quiz_lesson.passing_score if quiz_lesson else 70)
-        max_attempts = quiz_config.max_attempts if quiz_config else (quiz_lesson.attempts if quiz_lesson else 3)
-        
+        # Build safe quiz configuration
+        safe_quiz_config = {
+            "time_limit": quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30),
+            "passing_score": quiz_config.passing_score if quiz_config else (quiz_lesson.passing_score if quiz_lesson else 70),
+            "max_attempts": quiz_config.max_attempts if quiz_config else (quiz_lesson.attempts if quiz_lesson else 3),
+        }
+
         # Calculate total marks
         total_marks = lesson.calculate_total_marks()
-        
+
         return Response({
             "success": True,
             "data": {
-                "quiz_config": {
-                    "time_limit": time_limit,
-                    "passing_score": passing_score,
-                    "max_attempts": max_attempts,
-                    "randomize_questions": randomize,
-                    "show_correct_answers": quiz_config.show_correct_answers if quiz_config else True,
-                    "grading_policy": quiz_config.grading_policy if quiz_config else 'highest'
-                },
+                "quiz_config": safe_quiz_config,
                 "total_marks": total_marks,
                 "total_questions": len(questions),
                 "questions": question_data
             },
             "message": "Quiz questions retrieved successfully."
         }, status=status.HTTP_200_OK)
-    
+
     except Lesson.DoesNotExist:
         return Response({
             "success": False,

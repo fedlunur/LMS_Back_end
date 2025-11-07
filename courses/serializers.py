@@ -27,10 +27,12 @@ class WritableNestedField(serializers.PrimaryKeyRelatedField):
             return value.pk
         return self.nested_serializer_class(value, context=self.context).data
 
+
 # ----------------- UTILITY TO NORMALIZE MODEL NAMES -----------------
 def normalize_model_name(name: str) -> str:
     """Remove underscores and lowercase to match model_mapping keys"""
     return name.replace("_", "").lower()
+
 
 # ----------------- GET ALL MODELS IN COURSES APP -----------------
 all_models = apps.get_app_config('courses').get_models()
@@ -38,6 +40,7 @@ model_mapping = {model.__name__.lower(): model for model in all_models}
 
 # ----------------- LESSON TYPES WITH ATTACHMENTS -----------------
 LESSON_TYPES_WITH_ATTACHMENTS = ["VideoLesson", "ArticleLesson", "QuizLesson", "AssignmentLesson"]
+
 
 # ----------------- DYNAMIC FIELD SERIALIZER -----------------
 class DynamicFieldSerializer(serializers.ModelSerializer):
@@ -73,28 +76,85 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                     queryset=f.related_model.objects.all()
                 )
 
-        # ----------------- HANDLE ATTACHMENTS & EXTERNAL LINKS -----------------
-        if model.__name__ in LESSON_TYPES_WITH_ATTACHMENTS:
-            for f in model._meta.get_fields():
-                if isinstance(f, ManyToOneRel):
-                    related_model = f.related_model
-                    related_name = f.get_accessor_name()
+        # ----------------- HANDLE ATTACHMENTS, EXTERNAL LINKS & QUIZ ANSWERS -----------------
+        for f in model._meta.get_fields():
+            if isinstance(f, ManyToOneRel):
+                related_model = f.related_model
+                related_name = f.get_accessor_name()
 
-                    # Attachments
-                    if "attachment" in related_model.__name__.lower() or f.name == "attachments":
-                        class AttachmentSerializer(serializers.ModelSerializer):
-                            class Meta:
-                                model = related_model
-                                fields = ["id", "file", "uploaded_at"] if hasattr(related_model, "file") else "__all__"
-                        self.fields[related_name] = AttachmentSerializer(many=True, read_only=True)
+                # Attachments
+                if "attachment" in related_model.__name__.lower() or f.name == "attachments":
+                    class AttachmentSerializer(serializers.ModelSerializer):
+                        class Meta:
+                            model = related_model
+                            fields = ["id", "file", "uploaded_at"] if hasattr(related_model, "file") else "__all__"
+                    self.fields[related_name] = AttachmentSerializer(many=True, read_only=True)
+                    continue
 
-                    # External links
-                    elif "externallink" in related_model.__name__.lower() or f.name == "external_links_items":
-                        class ExternalLinkSerializer(serializers.ModelSerializer):
-                            class Meta:
-                                model = related_model
-                                fields = ["id", "title", "url", "description"]
-                        self.fields[related_name] = ExternalLinkSerializer(many=True, read_only=True)
+                # External links
+                elif "externallink" in related_model.__name__.lower() or f.name == "external_links_items":
+                    class ExternalLinkSerializer(serializers.ModelSerializer):
+                        class Meta:
+                            model = related_model
+                            fields = ["id", "title", "url", "description"]
+                    self.fields[related_name] = ExternalLinkSerializer(many=True, read_only=True)
+                    continue
+
+                # Quiz answers
+                elif related_model.__name__ == "QuizAnswer" and model.__name__ == "QuizQuestion":
+                    class QuizAnswerSerializer(serializers.ModelSerializer):
+                        class Meta:
+                            model = related_model
+                            fields = ["id", "answer_text", "answer_image", "is_correct", "order"]
+                    self.fields[related_name] = QuizAnswerSerializer(many=True, read_only=True)
+                    continue
+
+    # ----------------- CUSTOM REPRESENTATION (CLEAN OUTPUT) -----------------
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        # If not a quiz question, return default
+        if instance.__class__.__name__ != "QuizQuestion":
+            return data
+
+        # Remove unwanted fields
+        for field in ["lesson", "quiz_lesson", "pk", "created_at", "updated_at", "blanks_count", "total_marks"]:
+            data.pop(field, None)
+
+        question_type = data.get("question_type")
+        base = {
+            "id": data.get("id"),
+            "type": question_type,
+            "question": data.get("question_text"),
+            "image": data.get("question_image"),
+            "points": data.get("points"),
+            "explanation": data.get("explanation"),
+        }
+
+        # Render per question type
+        if question_type == "multiple-choice":
+            base["answers"] = [
+                {"id": a["id"], "text": a["answer_text"]}
+                for a in data.get("answers", [])
+            ]
+
+        elif question_type == "true-false":
+            base["answers"] = [
+                {"id": a["id"], "text": a["answer_text"]}
+                for a in data.get("answers", [])
+            ]
+
+        elif question_type == "fill-blank":
+            base["blanks"] = [
+                {"id": a["id"], "correct_answer": a["answer_text"]}
+                for a in data.get("answers", [])
+                if a.get("is_correct", True)
+            ]
+
+        else:
+            base["answers"] = data.get("answers", [])
+
+        return base
 
     # ----------------- CREATE -----------------
     def create(self, validated_data):

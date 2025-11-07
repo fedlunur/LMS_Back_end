@@ -140,7 +140,7 @@ class LessonAdmin(admin.ModelAdmin):
     ordering = ("course", "module", "order")
     autocomplete_fields = ("course", "module")
     # Quiz inlines **stay here** – they belong to Lesson
-    inlines = [QuizConfigurationInline, QuizQuestionInline]
+    # inlines = [QuizConfigurationInline, QuizQuestionInline]
 
 
 @admin.register(VideoLesson)
@@ -302,7 +302,7 @@ class MessageAdmin(admin.ModelAdmin):
 
 @admin.register(QuizQuestion)
 class QuizQuestionAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "question_type", "question_text_snippet", "points")
+    list_display = ("id", "lesson", "question_type", "question_text_snippet", "points")
     list_filter = ("question_type", "lesson")
     search_fields = ("question_text",)
     inlines = [QuizAnswerInline]

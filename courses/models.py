@@ -166,7 +166,8 @@ class Lesson(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.course.title} — {self.title}"
+        return f"{self.id}: {self.course.title} — {self.title} ({self.get_content_type_display()})"
+
     
     def calculate_total_marks(self):
         """Calculate total marks for a quiz lesson"""
@@ -378,6 +379,36 @@ class QuizQuestion(models.Model):
         """Calculate total marks for this question"""
         return self.points
 
+    @property
+    def blanks_count(self):
+        """Number of blanks for fill-blank/short-answer questions (derived from blanks list)."""
+        try:
+            return len(self.blanks) if self.blanks else 1
+        except Exception:
+            return 1
+
+    def save(self, *args, **kwargs):
+        """
+        Ensure default answers exist for True/False questions.
+        If question_type is changed to true-false and no answers exist, create True and False options.
+        """
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        # Auto-create default True/False options if needed
+        if self.question_type == 'true-false':
+            try:
+                # Defer import to avoid circular import at module level
+                from .models import QuizAnswer
+                if not self.answers.exists():
+                    QuizAnswer.objects.bulk_create([
+                        QuizAnswer(question=self, answer_text='True', is_correct=False, order=0),
+                        QuizAnswer(question=self, answer_text='False', is_correct=False, order=1),
+                    ])
+            except Exception:
+                # Fail silently to avoid blocking save; teacher can add manually
+                pass
+
 
 class QuizAnswer(models.Model):
     question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE, related_name='answers')
@@ -431,6 +462,32 @@ class QuizAttempt(models.Model):
         
         self.save()
         return self.score
+
+    def finalize_and_grade(self):
+        """Recalculate earned points/correct counts from responses and finalize attempt if still in progress."""
+        if not self.is_in_progress:
+            return self
+        responses = self.responses.select_related('question')
+        earned = 0.0
+        correct = 0
+        total_pts = 0.0
+        total_questions = 0
+        for resp in responses:
+            q = resp.question
+            total_questions += 1
+            total_pts += q.points
+            earned += resp.points_earned
+            if resp.is_correct:
+                correct += 1
+        self.total_questions = total_questions
+        self.total_points = total_pts
+        self.earned_points = earned
+        self.correct_answers = correct
+        self.is_in_progress = False
+        if not self.completed_at:
+            self.completed_at = timezone.now()
+        self.calculate_score()
+        return self
     
     def __str__(self):
         return f"{self.student.email} - {self.lesson.title} - {self.score}% - Attempt {self.attempt_number}"
