@@ -2,7 +2,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from ..UtilMethods import mark_lesson_completed, submit_assignment
+from courses.services.progress_service import mark_lesson_completed
+from courses.services.assignment_service import submit_assignment
 from ..serializers import DynamicFieldSerializer
 
 @api_view(['POST'])

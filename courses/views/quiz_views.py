@@ -2,10 +2,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from courses.UtilMethods import get_quiz_questions, start_quiz_attempt, is_lesson_accessible
+from courses.services.quiz_service import get_quiz_questions, start_quiz_attempt, submit_quiz
+from courses.services.access_service import is_lesson_accessible
 from courses.models import Enrollment, Lesson, QuizAttempt, QuizQuestion, QuizConfiguration, Enrollment
 from courses.serializers import DynamicFieldSerializer
-from courses.UtilMethods import submit_quiz
 from django.db.models import Avg, Max, Min
 
         

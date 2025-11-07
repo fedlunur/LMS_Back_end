@@ -2,7 +2,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from courses.UtilMethods import is_lesson_accessible, mark_lesson_completed
+from courses.services.access_service import is_lesson_accessible
+from courses.services.progress_service import mark_lesson_completed
 from courses.models import Course, Lesson, Enrollment, LessonProgress
 from ..serializers import DynamicFieldSerializer
 

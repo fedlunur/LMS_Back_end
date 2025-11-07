@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Count
 from courses.models import Course, Enrollment, Lesson, LessonProgress, Module
-from courses.UtilMethods import is_lesson_accessible, is_module_accessible
+from courses.services.access_service import is_lesson_accessible, is_module_accessible
 
 
 @api_view(['GET'])

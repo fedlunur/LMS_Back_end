@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from courses.models import Enrollment
-from ..UtilMethods import can_take_final_assessment, submit_final_assessment
+from courses.services.assessment_service import can_take_final_assessment, submit_final_assessment
 from ..serializers import DynamicFieldSerializer
 
 

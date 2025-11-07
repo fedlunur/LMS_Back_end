@@ -1,23 +1,16 @@
 # views/base.py
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
 from django.db.models import Count
 from django.contrib.auth import get_user_model
 
 from ..serializers import DynamicFieldSerializer
-from ..UtilMethods import *
+from courses.services.pagination import CustomPagination
+from courses.services.enrollment_service import enroll_user_in_course
+from courses.services.access_service import is_lesson_accessible, is_module_accessible
 from lms_project.utils import model_mapping  # this utility provides a mapping of model names to model classes
 
 User = get_user_model()
-
-
-# Custom Pagination
-class CustomPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
 
 class GenericModelViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination

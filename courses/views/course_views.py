@@ -1,7 +1,7 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
-from courses.UtilMethods import enroll_user_in_course
+from courses.services.enrollment_service import enroll_user_in_course
 from ..serializers import DynamicFieldSerializer
 from rest_framework.response import Response
 from rest_framework import status
