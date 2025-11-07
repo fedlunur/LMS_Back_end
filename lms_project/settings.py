@@ -18,8 +18,6 @@ env_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 # ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
@@ -41,7 +39,7 @@ DATABASES = {
     }
 }
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'fallback-dev-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -127,8 +125,8 @@ TEMPLATES = [
         },
     },
 ]
-WSGI_APPLICATION = 'wsgi.application'
-# WSGI_APPLICATION = 'lms_project.wsgi.application'
+# WSGI_APPLICATION = 'wsgi.application'
+WSGI_APPLICATION = 'lms_project.wsgi.application'
 
 # for the docker just uncomment the below 
 # ASGI_APPLICATION = 'backend.asgi.application'
