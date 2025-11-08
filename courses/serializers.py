@@ -162,6 +162,18 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
         attachments = validated_data.pop("attachments", None)
         lesson_instance = validated_data.pop("lesson", None)
 
+        # Ensure single config per lesson and friendly validation
+        if model.__name__ == "QuizConfiguration":
+            from rest_framework.exceptions import ValidationError
+            if not lesson_instance:
+                # Explicit error instead of bubbling up DB IntegrityError
+                raise ValidationError({"lesson": "This field is required."})
+            obj, _ = model.objects.update_or_create(
+                lesson=lesson_instance,
+                defaults=validated_data
+            )
+            return obj
+
         if lesson_instance and model.__name__ in LESSON_TYPES_WITH_ATTACHMENTS:
             obj, created = model.objects.update_or_create(
                 lesson=lesson_instance,

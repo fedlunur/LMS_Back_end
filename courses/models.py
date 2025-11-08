@@ -546,6 +546,12 @@ class QuizAttempt(models.Model):
 
 
 # --- Quiz configuration & responses ----------------------------------------
+GRADING_POLICY_CHOICES = [
+    ('highest', 'Highest Score'),
+    ('latest', 'Latest Attempt'),
+    ('average', 'Average Score'),
+    ('first', 'First Attempt'),
+]
 
 
 class QuizConfiguration(models.Model):

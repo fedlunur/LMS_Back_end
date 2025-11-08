@@ -327,7 +327,7 @@ class QuizAttemptAdmin(admin.ModelAdmin):
 
 @admin.register(QuizConfiguration)
 class QuizConfigurationAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "time_limit", "passing_score", "max_attempts")
+    list_display = ("id", "lesson", "time_limit", "passing_score", "max_attempts")
     search_fields = ("lesson__title",)
 
 
