@@ -1,12 +1,34 @@
 # models.py
-from django.conf import settings
+"""
+Domain models for the courses application.
+
+The file is intentionally organised in thematic sections to make it easier
+to navigate and maintain. A quick overview of the section order:
+
+1.  Core taxonomies (categories, levels, courses)
+2.  Course structure (modules, lessons and attachments)
+3.  Lesson content types (video, article, quiz, assignment)
+4.  Enrollment and progress tracking
+5.  Course metadata & communication (badges, QA, announcements, messages)
+6.  Assessments (final course assessments and related entities)
+"""
+
+import random
+import string
+from datetime import timedelta
+
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
-from user_managment.models import User 
-from .choices import *
 from django.utils.text import slugify
-import string, random 
+
+from user_managment.models import User
+from .choices import STATUS_CHOICES
+
+# ---------------------------------------------------------------------------
+# Core Taxonomies
+# ---------------------------------------------------------------------------
+
 
 class Category(models.Model):
     name = models.CharField(max_length=120, unique=True)
@@ -73,10 +95,17 @@ class Course(models.Model):
 
     @property
     def is_visible(self):
+        """
+        Expose a defensive helper for templates/API outputs.
+
+        Older migrations referenced flags that might not exist on the current
+        schema, so we guard those lookups with ``getattr`` to avoid runtime
+        AttributeError crashes in admin or serializers.
+        """
         return (
-            self.status and self.status.code == "published"
-            and not self.hidden_from_students
-            and not self.is_flagged
+            self.status == "published"
+            and not getattr(self, "hidden_from_students", False)
+            and not getattr(self, "is_flagged", False)
         )
 
     @property
@@ -85,14 +114,13 @@ class Course(models.Model):
 
     @property
     def total_duration(self):
-        from datetime import timedelta
-        total = sum((lesson.duration for lesson in self.lessons.all() if lesson.duration), timedelta())
-        hours = total.seconds // 3600
-        minutes = (total.seconds % 3600) // 60
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        else:
-            return f"{minutes}m"
+        total = sum(
+            (lesson.duration for lesson in self.lessons.all() if lesson.duration),
+            timedelta(),
+        )
+        total_minutes = int(total.total_seconds() // 60)
+        hours, minutes = divmod(total_minutes, 60)
+        return f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
     @property
     def average_rating(self):
@@ -104,6 +132,11 @@ class Course(models.Model):
     @property
     def total_reviews(self):
         return self.ratings.count()
+
+
+# ---------------------------------------------------------------------------
+# Course Structure
+# ---------------------------------------------------------------------------
 
 
 class Module(models.Model):
@@ -175,7 +208,13 @@ class Lesson(models.Model):
             questions = QuizQuestion.objects.filter(lesson=self)
             return sum(q.points for q in questions)
         return 0
-    
+
+
+# ---------------------------------------------------------------------------
+# Lesson Content Types
+# ---------------------------------------------------------------------------
+
+
 class VideoLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="video")
     video_file = models.FileField(upload_to='lesson_videos/', null=True, blank=True)
@@ -203,6 +242,10 @@ class VideoLessonAttachment(models.Model):
 
     def __str__(self):
         return f"{self.video_lesson.lesson.title} — {self.file.name}"
+
+
+# --- Quiz content ----------------------------------------------------------
+
 
 class QuizLesson(models.Model):
     QUESTION_TYPE_CHOICES = [
@@ -493,6 +536,9 @@ class QuizAttempt(models.Model):
         return f"{self.student.email} - {self.lesson.title} - {self.score}% - Attempt {self.attempt_number}"
 
 
+# --- Quiz configuration & responses ----------------------------------------
+
+
 class QuizConfiguration(models.Model):
     """Quiz settings and configuration for lessons"""
     GRADING_POLICY_CHOICES = [
@@ -564,6 +610,9 @@ class QuizConfiguration(models.Model):
         
         return 0.0
     
+# --- Assignment content ----------------------------------------------------
+
+
 class AssignmentLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="assignment")
     instructions = models.TextField(blank=True)
@@ -585,7 +634,10 @@ class AssignmentLesson(models.Model):
        
         verbose_name_plural = "AssignmentLesson"
 
-        
+
+# --- Article content -------------------------------------------------------
+
+
 class ArticleLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="article")
     title = models.CharField(max_length=200)
@@ -645,6 +697,11 @@ class LessonResource(models.Model):
     class Meta:
        
         verbose_name_plural = "LessonResource"
+
+# ---------------------------------------------------------------------------
+# Enrollment & Progress Tracking
+# ---------------------------------------------------------------------------
+
 
 class Enrollment(models.Model):
     PAYMENT_STATUS_CHOICES = [
@@ -785,7 +842,8 @@ class ResourceProgress(models.Model):
         return self
 
     def __str__(self):
-        return f"{self.lesson_progress.enrollment.student.email} - {self.resource.name}"
+        resource_title = getattr(self.resource, "title", None) or getattr(self.resource, "file", None)
+        return f"{self.lesson_progress.enrollment.student.email} - {resource_title}"
 
 
 class Certificate(models.Model):
@@ -806,6 +864,11 @@ class Certificate(models.Model):
 
     def __str__(self):
         return f"Certificate {self.certificate_number} - {self.enrollment.student.email}"
+# ---------------------------------------------------------------------------
+# Course Metadata & Communications
+# ---------------------------------------------------------------------------
+
+
 class CourseBadge(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='badges')
     badge_type = models.CharField(max_length=20, blank=True,null=True)
@@ -827,7 +890,8 @@ class CourseBadge(models.Model):
        
         verbose_name_plural = "LessonCourseBadge"
     def __str__(self):
-        return f"{self.get_badge_type_display()} - {self.course.title}"
+        label = self.badge_type or "badge"
+        return f"{label.title()} - {self.course.title}"
 
 class CourseQA(models.Model):
     """Q&A section for courses where students can ask questions"""
@@ -1112,9 +1176,7 @@ class Conversation(models.Model):
     class Meta:
         unique_together = ['teacher', 'student']  # One conversation per teacher-student pair
         ordering = ['-last_message_at']
-     
-       
-        verbose_name_plural = "Conversation "
+        verbose_name_plural = "Conversations"
     def __str__(self):
         course_name = self.course.title if self.course else "General"
         return f"{self.teacher.get_full_name()} - {self.student.get_full_name()} - {course_name}"
@@ -1146,7 +1208,7 @@ class Message(models.Model):
         ordering = ['sent_at']
      
        
-        verbose_name_plural = "Message"
+        verbose_name_plural = "Messages"
     def save(self, *args, **kwargs):
         # Update conversation's last message info
         super().save(*args, **kwargs)
@@ -1165,7 +1227,9 @@ class Message(models.Model):
         return f"{self.sender.get_full_name()} to {self.receiver.get_full_name()} - {self.sent_at.strftime('%Y-%m-%d %H:%M')}"
 
 
-# ------------ Additional Models for Course Details ------------ #
+# ---------------------------------------------------------------------------
+# Additional Course Details
+# ---------------------------------------------------------------------------
 
 class CourseOverview(models.Model):
     course = models.OneToOneField(Course, on_delete=models.CASCADE, related_name="overview")
@@ -1196,7 +1260,9 @@ class CourseFAQ(models.Model):
         return f"FAQ for {self.course.title}: {self.question}"
 
 
-# ============ Additional Models for LMS Functionality ============
+# ---------------------------------------------------------------------------
+# Shared LMS Resources
+# ---------------------------------------------------------------------------
 
 class LessonAttachment(models.Model):
     """Multiple attachments for VideoLesson and ArticleLesson"""
@@ -1334,6 +1400,11 @@ class ModuleProgress(models.Model):
     
     def __str__(self):
         return f"{self.enrollment.student.email} - {self.module.title} - {self.progress}%"
+
+
+# ---------------------------------------------------------------------------
+# Final Course Assessments
+# ---------------------------------------------------------------------------
 
 
 class FinalCourseAssessment(models.Model):
