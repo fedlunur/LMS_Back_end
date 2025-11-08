@@ -156,8 +156,10 @@ urlpatterns = [
     re_path(r'^api/verify-certificate/(?P<certificate_number>[-A-Z0-9]+)/$', verify_certificate_view, name='verify_certificate'),
 
     # User profile
+    re_path(r'^api/profile/?$', UserView.as_view(), name='get_profile'),
     re_path(r'^api/profile/update/$', UpdateProfileView.as_view(), name='update_profile'),
     re_path(r'^api/teacher/(?P<user_id>\d+)/$', TeacherDetailView.as_view(), name='teacher_detail'),
+    re_path(r'^api/user/(?P<user_id>\d+)/?$', UserDetailView.as_view(), name='user_detail'),
     
     # Generics
     re_path("api/", include(router.urls)),

@@ -190,7 +190,7 @@ def get_quiz_questions_view(request, lesson_id):
         randomize = quiz_config.randomize_questions if quiz_config else (quiz_lesson.randomize_questions if quiz_lesson else False)
         questions = get_quiz_questions(lesson, randomize=randomize)
         
-        # Serialize questions (without correct answers)
+        # Serialize questions (without correct answers) to student-facing shape
         question_data = []
         for q in questions:
             q_data = DynamicFieldSerializer(q, model_name="quizquestion").data
@@ -211,9 +211,11 @@ def get_quiz_questions_view(request, lesson_id):
                     q_data.pop(field, None)
 
             elif q_type == 'fill-blank':
-                q_data['blanks_count'] = len(q.blanks) if hasattr(q, 'blanks') and q.blanks else 1
+                # Ensure a blanks array is present for frontend; do not expose correct answers
+                blanks = q.blanks if hasattr(q, 'blanks') and q.blanks else []
+                q_data['blanks'] = [] if blanks else []
                 for field in [
-                    'answers', 'blanks', 'cloze_text', 'cloze_answers', 'cloze_options',
+                    'answers', 'cloze_text', 'cloze_answers', 'cloze_options',
                     'background_image', 'image_drop_zones', 'image_drag_items', 'image_correct_mappings',
                     'matching_left_items', 'matching_right_items', 'matching_correct_pairs',
                     'sequencing_items', 'sequencing_correct_order', 'categorization_items',
@@ -237,26 +239,17 @@ def get_quiz_questions_view(request, lesson_id):
                     q_data.pop(field, None)
 
             question_data.append(q_data)
-        
-        # Build safe quiz configuration
-        safe_quiz_config = {
-            "time_limit": quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30),
-            "passing_score": quiz_config.passing_score if quiz_config else (quiz_lesson.passing_score if quiz_lesson else 70),
-            "max_attempts": quiz_config.max_attempts if quiz_config else (quiz_lesson.attempts if quiz_lesson else 3),
-        }
 
-        # Calculate total marks
-        total_marks = lesson.calculate_total_marks()
-
+        # Return in paginated-like structure to match frontend expectations
         return Response({
-            "success": True,
-            "data": {
-                "quiz_config": safe_quiz_config,
-                "total_marks": total_marks,
-                "total_questions": len(questions),
-                "questions": question_data
-            },
-            "message": "Quiz questions retrieved successfully."
+            "count": len(question_data),
+            "next": None,
+            "previous": None,
+            "results": {
+                "success": True,
+                "data": question_data,
+                "message": "Records retrieved successfully."
+            }
         }, status=status.HTTP_200_OK)
 
     except Lesson.DoesNotExist:

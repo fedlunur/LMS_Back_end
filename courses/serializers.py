@@ -72,8 +72,11 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
         # ----------------- HANDLE FOREIGN KEYS -----------------
         for f in model._meta.get_fields():
             if isinstance(f, ForeignKey):
+                is_optional = getattr(f, "null", False) or getattr(f, "blank", False)
                 self.fields[f.name] = serializers.PrimaryKeyRelatedField(
-                    queryset=f.related_model.objects.all()
+                    queryset=f.related_model.objects.all(),
+                    required=not is_optional,
+                    allow_null=is_optional
                 )
 
         # ----------------- HANDLE ATTACHMENTS, EXTERNAL LINKS & QUIZ ANSWERS -----------------
@@ -108,6 +111,15 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                             fields = ["id", "answer_text", "answer_image", "is_correct", "order"]
                     self.fields[related_name] = QuizAnswerSerializer(many=True, read_only=True)
                     continue
+
+        # ----------------- INPUT ALIASES FOR FRONTEND COMPAT -----------------
+        # Allow creating QuizQuestion with 'type' and 'question' aliases
+        if self.Meta.model.__name__ == "QuizQuestion":
+            self.fields.setdefault("type", serializers.CharField(source="question_type", required=False))
+            self.fields.setdefault("question", serializers.CharField(source="question_text", required=False))
+        # Allow creating QuizAnswer with 'text' alias
+        if self.Meta.model.__name__ == "QuizAnswer":
+            self.fields.setdefault("text", serializers.CharField(source="answer_text", required=False))
 
     # ----------------- CUSTOM REPRESENTATION (CLEAN OUTPUT) -----------------
     def to_representation(self, instance):
@@ -185,6 +197,10 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                     related_model = obj._meta.get_field("attachments").related_model
                     related_model.objects.create(**{obj._meta.model_name: obj, "file": f})
             return obj
+
+        # For other models that still require 'lesson' FK (e.g., QuizQuestion), put it back
+        if lesson_instance is not None and any(f.name == "lesson" for f in model._meta.get_fields()):
+            validated_data["lesson"] = lesson_instance
 
         return super().create(validated_data)
 

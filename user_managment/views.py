@@ -41,8 +41,24 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        """
+        Support JWT logout by blacklisting refresh token if provided, and
+        also clear Django session to cover session-auth cases.
+        Accepts either 'refresh' or 'refresh_token' in the body.
+        """
+        refresh_token = request.data.get("refresh") or request.data.get("refresh_token")
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except TokenError:
+                return Response(
+                    {"success": False, "message": "Invalid or expired refresh token."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        # End session (no-op for pure JWT clients, safe to call)
         logout(request)
-        return Response(status=status.HTTP_200_OK)
+        return Response({"success": True, "message": "Logged out successfully."}, status=status.HTTP_200_OK)
 
 
 import traceback
@@ -298,6 +314,9 @@ class UpdateProfileView(APIView):
             'message': 'Profile updated successfully.'
         }, status=status.HTTP_200_OK)
 
+    # Allow full update via PUT with same allowed fields
+    def put(self, request):
+        return self.patch(request)
 
 class TeacherDetailView(APIView):
     permission_classes = [AllowAny]
@@ -315,5 +334,20 @@ class TeacherDetailView(APIView):
             'success': True,
             'data': UserDetailSerializer(teacher).data,
             'message': 'Teacher profile retrieved.'
+        }, status=status.HTTP_200_OK)
+
+
+class UserDetailView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"success": False, "message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'success': True,
+            'data': UserDetailSerializer(user).data,
+            'message': 'User profile retrieved.'
         }, status=status.HTTP_200_OK)
 
