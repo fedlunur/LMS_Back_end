@@ -308,7 +308,7 @@ class QuizQuestion(models.Model):
     ]
     
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_questions')
-    quiz_lesson = models.ForeignKey(QuizLesson, on_delete=models.CASCADE, related_name='questions', null=True, blank=True)
+    # quiz_lesson = models.ForeignKey(QuizLesson, on_delete=models.CASCADE, related_name='questions', null=True, blank=True)
     question_type = models.CharField(max_length=30, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
     question_text = models.TextField()
     question_image = models.ImageField(upload_to='quiz_questions/', null=True, blank=True)

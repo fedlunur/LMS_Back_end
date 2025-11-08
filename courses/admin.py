@@ -44,12 +44,7 @@ class QuizQuestionInline(admin.TabularInline):
     model = QuizQuestion
     extra = 1
 
-    def save_new_objects(self, commit=True):
-        # For Django >= 3.0, may have to override save_related instead
-        for obj in self.new_objects:
-            if not obj.lesson_id and obj.quiz_lesson:
-                obj.lesson = obj.quiz_lesson.lesson
-            obj.save()
+ 
 
 # ================================
 # OTHER INLINES
@@ -140,7 +135,7 @@ class LessonAdmin(admin.ModelAdmin):
     ordering = ("course", "module", "order")
     autocomplete_fields = ("course", "module")
     # Quiz inlines **stay here** – they belong to Lesson
-    # inlines = [QuizConfigurationInline, QuizQuestionInline]
+    inlines = [QuizConfigurationInline, QuizQuestionInline]
 
 
 @admin.register(VideoLesson)
@@ -156,7 +151,7 @@ class QuizLessonAdmin(admin.ModelAdmin):
     list_filter = ("type",)
     search_fields = ("lesson__title", "lesson__description")
     autocomplete_fields = ("lesson",)
-    inlines = [QuizQuestionInline]
+    # Do not inline QuizQuestion here as the FK is to Lesson, not QuizLesson
 
     fieldsets = (
         ("Lesson Link", {"fields": ("lesson",)}),
@@ -177,15 +172,15 @@ class QuizLessonAdmin(admin.ModelAdmin):
         return obj.questions.count()
     question_count.short_description = "Questions"
 
-    def save_formset(self, request, form, formset, change):
-        instances = formset.save(commit=False)
-        for obj in instances:
-            if isinstance(obj, QuizQuestion):
-                # Auto-link question.lesson to quiz_lesson.lesson
-                if obj.quiz_lesson and not obj.lesson:
-                    obj.lesson = obj.quiz_lesson.lesson
-            obj.save()
-        formset.save_m2m()
+    # def save_formset(self, request, form, formset, change):
+    #     instances = formset.save(commit=False)
+    #     for obj in instances:
+    #         if isinstance(obj, QuizQuestion):
+    #             # Auto-link question.lesson to quiz_lesson.lesson
+    #             if obj.quiz_lesson and not obj.lesson:
+    #                 obj.lesson = obj.quiz_lesson.lesson
+    #         obj.save()
+    #     formset.save_m2m()
 
 
 @admin.register(AssignmentLesson)
