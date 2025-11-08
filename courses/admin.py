@@ -160,7 +160,7 @@ class QuizLessonAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ("Lesson Link", {"fields": ("lesson",)}),
-        ("Quiz Type (required)", {"fields": ("type",)}),
+        # ("Quiz Type (required)", {"fields": ("type",)}),
         ("Settings", {
             "fields": (
                 "time_limit",
@@ -315,7 +315,7 @@ class QuizQuestionAdmin(admin.ModelAdmin):
 
 @admin.register(QuizAnswer)
 class QuizAnswerAdmin(admin.ModelAdmin):
-    list_display = ("question", "answer_text", "is_correct")
+    list_display = ("id", "question", "answer_text", "is_correct")
     list_filter = ("is_correct",)
 
 

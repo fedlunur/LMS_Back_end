@@ -79,6 +79,7 @@ class Course(models.Model):
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
     issue_certificate = models.BooleanField(default=False)
+    # is_public = models.BooleanField(default=True) # Future use: control visibility of course in catalog 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -247,6 +248,14 @@ class VideoLessonAttachment(models.Model):
 # --- Quiz content ----------------------------------------------------------
 
 
+GRADING_POLICY_CHOICES = [
+    ('highest', 'Highest Score'),
+    ('latest', 'Latest Attempt'),
+    ('average', 'Average Score'),
+    ('first', 'First Attempt'),
+]
+
+
 class QuizLesson(models.Model):
     QUESTION_TYPE_CHOICES = [
         ('multiple-choice', 'Multiple Choice'),
@@ -275,7 +284,7 @@ class QuizLesson(models.Model):
     attempts = models.PositiveIntegerField(default=3)
     randomize_questions = models.BooleanField(default=False)
     show_correct_answers = models.BooleanField(default=True)
-    grading_policy = models.CharField(max_length=20, default="highest")
+    grading_policy = models.CharField(choices=GRADING_POLICY_CHOICES, max_length=20, default="highest")
 
     class Meta:
         verbose_name_plural = "QuizLesson"
@@ -541,12 +550,12 @@ class QuizAttempt(models.Model):
 
 class QuizConfiguration(models.Model):
     """Quiz settings and configuration for lessons"""
-    GRADING_POLICY_CHOICES = [
-        ('highest', 'Highest Score'),
-        ('latest', 'Latest Attempt'),
-        ('average', 'Average Score'),
-        ('first', 'First Attempt'),
-    ]
+    # GRADING_POLICY_CHOICES = [
+    #     ('highest', 'Highest Score'),
+    #     ('latest', 'Latest Attempt'),
+    #     ('average', 'Average Score'),
+    #     ('first', 'First Attempt'),
+    # ]
     
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name='quiz_config')
     time_limit = models.PositiveIntegerField(
