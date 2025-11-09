@@ -440,26 +440,7 @@ class QuizQuestion(models.Model):
             return 1
 
     def save(self, *args, **kwargs):
-        """
-        Ensure default answers exist for True/False questions.
-        If question_type is changed to true-false and no answers exist, create True and False options.
-        """
-        is_new = self.pk is None
         super().save(*args, **kwargs)
-
-        # Auto-create default True/False options if needed
-        if self.question_type == 'true-false':
-            try:
-                # Defer import to avoid circular import at module level
-                from .models import QuizAnswer
-                if not self.answers.exists():
-                    QuizAnswer.objects.bulk_create([
-                        QuizAnswer(question=self, answer_text='True', is_correct=False, order=0),
-                        QuizAnswer(question=self, answer_text='False', is_correct=False, order=1),
-                    ])
-            except Exception:
-                # Fail silently to avoid blocking save; teacher can add manually
-                pass
 
 
 class QuizAnswer(models.Model):
