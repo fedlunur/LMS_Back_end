@@ -69,10 +69,17 @@ def get_quiz_results_view(request, lesson_id):
         ).order_by('-completed_at').first()
         
         if not attempt:
+            # Return a friendly, actionable message for first-time quiz takers
+            quiz_config = getattr(lesson, 'quiz_config', None)
             return Response({
-                "success": False,
-                "message": "No quiz attempt found for this lesson."
-            }, status=status.HTTP_404_NOT_FOUND)
+                "success": True,
+                "data": {
+                    "has_attempt": False,
+                    "message": "You haven't taken this quiz yet. Click Start to begin your first attempt.",
+                    "config": DynamicFieldSerializer(quiz_config, model_name="quizconfiguration").data if quiz_config else None
+                },
+                "message": "No attempts yet."
+            }, status=status.HTTP_200_OK)
         
         # Get quiz config
         quiz_config = getattr(lesson, 'quiz_config', None)
