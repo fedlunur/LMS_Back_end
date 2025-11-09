@@ -246,10 +246,22 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         model_name = self.basename.lower()
 
-        if model_name == 'lesson' and not is_lesson_accessible(request.user, instance):
-            return self.failure_response("You do not have access to this lesson. Please complete the previous lesson first.")
-        elif model_name == 'module' and not is_module_accessible(request.user, instance):
-            return self.failure_response("You do not have access to this module. Please complete all lessons in the previous module first.")
+        # For instructors/staff of the course, skip student lock checks
+        user = request.user
+        is_instructor = False
+        try:
+            if model_name == 'lesson':
+                is_instructor = bool(instance.course and instance.course.instructor_id == user.id)
+            elif model_name == 'module':
+                is_instructor = bool(instance.course and instance.course.instructor_id == user.id)
+        except Exception:
+            is_instructor = False
+
+        if not (user.is_staff or is_instructor):
+            if model_name == 'lesson' and not is_lesson_accessible(request.user, instance):
+                return self.failure_response("You do not have access to this lesson. Please complete the previous lesson first.")
+            elif model_name == 'module' and not is_module_accessible(request.user, instance):
+                return self.failure_response("You do not have access to this module. Please complete all lessons in the previous module first.")
 
         serializer = self.get_serializer(instance)
         return self.success_response(serializer.data, "Record retrieved successfully.")

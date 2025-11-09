@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from courses.services.quiz_service import get_quiz_questions, start_quiz_attempt, submit_quiz
 from courses.services.access_service import is_lesson_accessible
-from courses.models import Enrollment, Lesson, QuizAttempt, QuizQuestion, QuizConfiguration, Enrollment
+from courses.models import Enrollment, Lesson, QuizAttempt, QuizQuestion, QuizConfiguration, QuizAnswer, Enrollment
 from courses.serializers import DynamicFieldSerializer
 from django.db.models import Avg, Max, Min
 
@@ -152,7 +152,7 @@ def start_quiz_attempt_view(request, lesson_id):
         }, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'POST', 'PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def get_quiz_questions_view(request, lesson_id):
     """
@@ -161,62 +161,150 @@ def get_quiz_questions_view(request, lesson_id):
     """
     try:
         lesson = Lesson.objects.get(id=lesson_id)
-        enrollment = Enrollment.objects.get(student=request.user, course=lesson.course)
-        
-        if enrollment.payment_status != 'completed':
-            return Response({
-                "success": False,
-                "message": "Payment not completed for this course."
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        if lesson.content_type != Lesson.ContentType.QUIZ:
-            return Response({
-                "success": False,
-                "message": "This lesson is not a quiz."
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # Allow instructor/staff to access regardless of enrollment/locks
+        is_instructor = (lesson.course.instructor_id == request.user.id) or request.user.is_staff
 
-        # Ensure unlock
-        if not is_lesson_accessible(request.user, lesson):
-            return Response({
-                "success": False,
-                "message": "This quiz is locked. Please complete the previous lesson first."
-            }, status=status.HTTP_403_FORBIDDEN)
+        enrollment = None
+        if not is_instructor:
+            enrollment = Enrollment.objects.get(student=request.user, course=lesson.course)
+            
+            if enrollment.payment_status != 'completed':
+                return Response({
+                    "success": False,
+                    "message": "Payment not completed for this course."
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            if lesson.content_type != Lesson.ContentType.QUIZ:
+                return Response({
+                    "success": False,
+                    "message": "This lesson is not a quiz."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Ensure unlock for students
+            if not is_lesson_accessible(request.user, lesson):
+                return Response({
+                    "success": False,
+                    "message": "This quiz is locked. Please complete the previous lesson first."
+                }, status=status.HTTP_403_FORBIDDEN)
         
         # Get quiz configuration
         quiz_config = getattr(lesson, 'quiz_config', None)
         quiz_lesson = getattr(lesson, 'quiz', None)
 
-        # Enforce time limit: if there is an in-progress attempt and it's expired, finalize and block showing questions
-        from datetime import timedelta
-        from django.utils import timezone
-        from courses.models import QuizAttempt
-        in_progress = QuizAttempt.objects.filter(student=request.user, lesson=lesson, is_in_progress=True).first()
-        if in_progress:
-            time_limit_min = quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30)
-            if in_progress.started_at and timezone.now() > (in_progress.started_at + timedelta(minutes=time_limit_min)):
-                # Finalize attempt with existing responses
-                all_questions = lesson.quiz_questions.all()
-                total_points = sum(q.points for q in all_questions)
-                attempt = in_progress
-                attempt.total_questions = all_questions.count()
-                attempt.total_points = total_points
-                # earned/correct already reflect recorded responses
-                attempt.is_in_progress = False
-                attempt.completed_at = timezone.now()
-                attempt.time_taken = attempt.completed_at - attempt.started_at if attempt.started_at else None
-                attempt.calculate_score()
-                return Response({
-                    "success": False,
-                    "message": "Time limit exceeded. Attempt submitted.",
-                    "data": {
-                        "attempt": {
-                            "id": attempt.id,
-                            "score": attempt.score,
-                            "passed": attempt.passed,
-                            "completed_at": attempt.completed_at
+        if not is_instructor:
+            # Enforce time limit for students only: if in-progress attempt is expired, finalize and block
+            from datetime import timedelta
+            from django.utils import timezone
+            from courses.models import QuizAttempt
+            in_progress = QuizAttempt.objects.filter(student=request.user, lesson=lesson, is_in_progress=True).first()
+            if in_progress:
+                time_limit_min = quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30)
+                if in_progress.started_at and timezone.now() > (in_progress.started_at + timedelta(minutes=time_limit_min)):
+                    # Finalize attempt with existing responses
+                    all_questions = lesson.quiz_questions.all()
+                    total_points = sum(q.points for q in all_questions)
+                    attempt = in_progress
+                    attempt.total_questions = all_questions.count()
+                    attempt.total_points = total_points
+                    # earned/correct already reflect recorded responses
+                    attempt.is_in_progress = False
+                    attempt.completed_at = timezone.now()
+                    attempt.time_taken = attempt.completed_at - attempt.started_at if attempt.started_at else None
+                    attempt.calculate_score()
+                    return Response({
+                        "success": False,
+                        "message": "Time limit exceeded. Attempt submitted.",
+                        "data": {
+                            "attempt": {
+                                "id": attempt.id,
+                                "score": attempt.score,
+                                "passed": attempt.passed,
+                                "completed_at": attempt.completed_at
+                            }
                         }
-                    }
-                }, status=status.HTTP_403_FORBIDDEN)
+                    }, status=status.HTTP_403_FORBIDDEN)
+
+        # Teacher-side manage (create/update/delete) questions via this endpoint
+        if request.method in ['POST', 'PATCH', 'DELETE']:
+            if not is_instructor:
+                return Response({"success": False, "message": "Only the course instructor can modify quiz questions."}, status=status.HTTP_403_FORBIDDEN)
+
+            try:
+                if request.method == 'POST':
+                    data = request.data
+                    q = QuizQuestion.objects.create(
+                        lesson=lesson,
+                        question_type=data.get('question_type', 'multiple-choice'),
+                        question_text=data.get('question_text', ''),
+                        points=data.get('points', 1),
+                        order=data.get('order', 0),
+                        blanks=data.get('blanks', []),
+                        cloze_text=data.get('cloze_text', ''),
+                        cloze_answers=data.get('cloze_answers', []),
+                        cloze_options=data.get('cloze_options', []),
+                    )
+                    # Optional: create answers for MCQ/TF if provided
+                    answers = data.get('answers')
+                    if isinstance(answers, list):
+                        QuizAnswer.objects.filter(question=q).delete()
+                        bulk = []
+                        for idx, a in enumerate(answers):
+                            bulk.append(QuizAnswer(
+                                question=q,
+                                answer_text=a.get('answer_text') or a.get('text') or '',
+                                is_correct=bool(a.get('is_correct', False)),
+                                order=a.get('order', idx)
+                            ))
+                        if bulk:
+                            QuizAnswer.objects.bulk_create(bulk)
+                    return Response({
+                        "success": True,
+                        "message": "Quiz question created.",
+                        "data": DynamicFieldSerializer(q, model_name="quizquestion").data
+                    }, status=status.HTTP_201_CREATED)
+
+                if request.method == 'PATCH':
+                    data = request.data
+                    question_id = data.get('question_id')
+                    if not question_id:
+                        return Response({"success": False, "message": "question_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+                    q = QuizQuestion.objects.get(id=question_id, lesson=lesson)
+                    for field in ['question_type', 'question_text', 'points', 'order', 'blanks', 'cloze_text', 'cloze_answers', 'cloze_options']:
+                        if field in data:
+                            setattr(q, field, data[field])
+                    q.save()
+                    # Replace answers if provided
+                    if isinstance(data.get('answers'), list):
+                        QuizAnswer.objects.filter(question=q).delete()
+                        bulk = []
+                        for idx, a in enumerate(data['answers']):
+                            bulk.append(QuizAnswer(
+                                question=q,
+                                answer_text=a.get('answer_text') or a.get('text') or '',
+                                is_correct=bool(a.get('is_correct', False)),
+                                order=a.get('order', idx)
+                            ))
+                        if bulk:
+                            QuizAnswer.objects.bulk_create(bulk)
+                    return Response({
+                        "success": True,
+                        "message": "Quiz question updated.",
+                        "data": DynamicFieldSerializer(q, model_name="quizquestion").data
+                    }, status=status.HTTP_200_OK)
+
+                if request.method == 'DELETE':
+                    data = request.data
+                    question_id = data.get('question_id')
+                    if not question_id:
+                        return Response({"success": False, "message": "question_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+                    q = QuizQuestion.objects.get(id=question_id, lesson=lesson)
+                    q.delete()
+                    return Response({"success": True, "message": "Quiz question deleted."}, status=status.HTTP_200_OK)
+
+            except QuizQuestion.DoesNotExist:
+                return Response({"success": False, "message": "Quiz question not found for this lesson."}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                return Response({"success": False, "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Get questions
         randomize = quiz_config.randomize_questions if quiz_config else (quiz_lesson.randomize_questions if quiz_lesson else False)

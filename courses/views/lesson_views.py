@@ -81,15 +81,20 @@ def list_course_lessons_view(request, course_id):
     except Course.DoesNotExist:
         return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    # Ensure the user is enrolled
-    enrollment = Enrollment.objects.filter(student=request.user, course=course, payment_status='completed').first()
-    if not enrollment:
-        return Response({"success": False, "message": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
+    # Allow course instructor or staff to browse without enrollment/locks
+    is_instructor = (course.instructor_id == request.user.id) or request.user.is_staff
+
+    # Ensure the user is enrolled (students only)
+    enrollment = None
+    if not is_instructor:
+        enrollment = Enrollment.objects.filter(student=request.user, course=course, payment_status='completed').first()
+        if not enrollment:
+            return Response({"success": False, "message": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
 
     lessons = Lesson.objects.filter(course=course).order_by('module__order', 'order')
     data = []
     for lesson in lessons:
-        unlocked = is_lesson_accessible(request.user, lesson)
+        unlocked = True if is_instructor else is_lesson_accessible(request.user, lesson)
         data.append({
             'id': lesson.id,
             'title': lesson.title,
@@ -173,12 +178,15 @@ def get_lesson_detail_view(request, lesson_id):
     except Lesson.DoesNotExist:
         return Response({"success": False, "message": "Lesson not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    # Ensure enrollment and unlock
-    if not Enrollment.objects.filter(student=request.user, course=lesson.course, payment_status='completed').exists():
-        return Response({"success": False, "message": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
+    # Allow course instructor/staff to access regardless of locks or enrollment
+    is_instructor = (lesson.course.instructor_id == request.user.id) or request.user.is_staff
 
-    if not is_lesson_accessible(request.user, lesson):
-        return Response({"success": False, "message": "This lesson is locked. Please complete the previous lesson first."}, status=status.HTTP_403_FORBIDDEN)
+    # Ensure enrollment and unlock for students only
+    if not is_instructor:
+        if not Enrollment.objects.filter(student=request.user, course=lesson.course, payment_status='completed').exists():
+            return Response({"success": False, "message": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
+        if not is_lesson_accessible(request.user, lesson):
+            return Response({"success": False, "message": "This lesson is locked. Please complete the previous lesson first."}, status=status.HTTP_403_FORBIDDEN)
 
     # Serialize base lesson
     lesson_data = DynamicFieldSerializer(lesson, model_name="lesson").data
