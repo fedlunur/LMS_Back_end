@@ -125,6 +125,14 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
+        # Hide checkpoint quiz correct answers from non-staff
+        if instance.__class__.__name__ == "VideoCheckpointQuiz":
+            request = self.context.get("request") if hasattr(self, "context") else None
+            is_staff = bool(getattr(getattr(request, "user", None), "is_staff", False)) if request else False
+            if not is_staff:
+                data.pop("correct_answer_index", None)
+            return data
+
         # If not a quiz question, return default
         if instance.__class__.__name__ != "QuizQuestion":
             return data
@@ -201,6 +209,23 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
         # For other models that still require 'lesson' FK (e.g., QuizQuestion), put it back
         if lesson_instance is not None and any(f.name == "lesson" for f in model._meta.get_fields()):
             validated_data["lesson"] = lesson_instance
+
+        # Graceful idempotency for VideoCheckpointResponse: update existing instead of erroring
+        if model.__name__ == "VideoCheckpointResponse":
+            student = validated_data.get("student")
+            checkpoint_quiz = validated_data.get("checkpoint_quiz")
+            if checkpoint_quiz and not validated_data.get("lesson"):
+                try:
+                    validated_data["lesson"] = checkpoint_quiz.lesson
+                except Exception:
+                    pass
+            if student and checkpoint_quiz:
+                obj, _ = model.objects.update_or_create(
+                    student=student,
+                    checkpoint_quiz=checkpoint_quiz,
+                    defaults=validated_data
+                )
+                return obj
 
         return super().create(validated_data)
 

@@ -115,6 +115,59 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(enrollment)
             return self.success_response(serializer.data, message, status.HTTP_201_CREATED)
 
+        # Ownership checks on create for content models (teacher-only)
+        model_name = self.basename.lower()
+        user = request.user
+        if not user.is_staff and user.is_authenticated:
+            protected = [
+                'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
+                'lessonresource', 'quizquestion', 'quizanswer', 'quizconfiguration'
+            ]
+            if model_name in protected:
+                try:
+                    Course = model_mapping.get("course")
+                    Module = model_mapping.get("module")
+                    Lesson = model_mapping.get("lesson")
+                    QuizQuestion = model_mapping.get("quizquestion")
+
+                    course = None
+                    data = request.data
+
+                    if model_name == "module":
+                        course_id = data.get("course")
+                        if course_id and Course:
+                            course = Course.objects.get(pk=course_id)
+                    elif model_name == "lesson":
+                        course_id = data.get("course")
+                        module_id = data.get("module")
+                        if course_id and Course:
+                            course = Course.objects.get(pk=course_id)
+                        elif module_id and Module:
+                            module = Module.objects.get(pk=module_id)
+                            course = getattr(module, "course", None)
+                    elif model_name in ["videolesson", "quizlesson", "assignmentlesson", "articlelesson", "lessonresource", "quizconfiguration"]:
+                        lesson_id = data.get("lesson")
+                        if lesson_id and Lesson:
+                            lesson = Lesson.objects.get(pk=lesson_id)
+                            course = getattr(lesson, "course", None)
+                    elif model_name == "quizquestion":
+                        lesson_id = data.get("lesson")
+                        if lesson_id and Lesson:
+                            lesson = Lesson.objects.get(pk=lesson_id)
+                            course = getattr(lesson, "course", None)
+                    elif model_name == "quizanswer":
+                        question_id = data.get("question")
+                        if question_id and QuizQuestion:
+                            question = QuizQuestion.objects.get(pk=question_id)
+                            lesson = getattr(question, "lesson", None)
+                            course = getattr(lesson, "course", None) if lesson else None
+
+                    if not course or getattr(course, "instructor_id", None) != user.id:
+                        return self.failure_response("You are not allowed to create this content.", status.HTTP_403_FORBIDDEN)
+                except Exception:
+                    # Fall back to deny if we cannot resolve ownership safely
+                    return self.failure_response("You are not allowed to create this content.", status.HTTP_403_FORBIDDEN)
+
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             instance = serializer.save()

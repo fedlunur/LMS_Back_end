@@ -1,7 +1,7 @@
 from django.utils import timezone
 
 from courses.services.progress_service import mark_lesson_completed
-from ..models import Enrollment, Lesson, QuizQuestion, QuizAnswer, QuizAttempt, QuizResponse
+from ..models import Enrollment, Lesson, QuizQuestion, QuizAnswer, QuizAttempt, QuizResponse, LessonProgress, ModuleProgress, Module
 from .access_service import is_lesson_accessible
 
 def evaluate_question_answer(question, response_data):
@@ -344,6 +344,32 @@ def submit_quiz(user, lesson_id, responses, start_time=None):
         passing_score = quiz_config.passing_score if quiz_config else (quiz_lesson.passing_score if quiz_lesson else 70)
         if attempt.passed:
             mark_lesson_completed(user, lesson_id)
+        else:
+            # If not passed and attempts exhausted, reset previous lessons in module to force relearn
+            used_attempts = QuizAttempt.objects.filter(
+                student=user, lesson=lesson, is_in_progress=False
+            ).count()
+            max_attempts = quiz_config.max_attempts if quiz_config else (quiz_lesson.attempts if quiz_lesson else 3)
+            if used_attempts >= max_attempts and lesson.module:
+                # Find lessons before this quiz within the same module
+                prior_lessons = Lesson.objects.filter(module=lesson.module, order__lt=lesson.order)
+                # Reset their progress
+                for prior in prior_lessons:
+                    try:
+                        lp = LessonProgress.objects.get(enrollment=enrollment, lesson=prior)
+                        lp.completed = False
+                        lp.progress = 0.0
+                        lp.completed_at = None
+                        lp.save(update_fields=["completed", "progress", "completed_at"])
+                    except LessonProgress.DoesNotExist:
+                        # If no progress exists, nothing to reset
+                        continue
+                # Recalculate module progress (will set incomplete)
+                try:
+                    mp = ModuleProgress.objects.get(enrollment=enrollment, module=lesson.module)
+                    mp.calculate_progress()
+                except ModuleProgress.DoesNotExist:
+                    pass
 
         return True, "Quiz submitted successfully.", {
             'attempt_id': attempt.id,
