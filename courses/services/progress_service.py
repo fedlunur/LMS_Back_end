@@ -1,4 +1,4 @@
-from ..models import Enrollment, Lesson, LessonProgress, Module, ModuleProgress
+from ..models import Enrollment, Lesson, LessonProgress, Module, ModuleProgress, QuizAttempt
 from .access_service import is_lesson_accessible
 
 def mark_lesson_completed(user, lesson_id):
@@ -18,6 +18,14 @@ def mark_lesson_completed(user, lesson_id):
         if not is_lesson_accessible(user, lesson):
             return False, "Lesson is not accessible yet."
         
+        # For quiz lessons: ensure the student has a passed attempt
+        if lesson.content_type == Lesson.ContentType.QUIZ:
+            latest_pass = QuizAttempt.objects.filter(
+                student=user, lesson=lesson, is_in_progress=False, passed=True
+            ).order_by('-completed_at', '-started_at').first()
+            if not latest_pass:
+                return False, "You must pass the quiz before marking this lesson as completed."
+
         # Get or create lesson progress
         progress, created = LessonProgress.objects.get_or_create(
             enrollment=enrollment,

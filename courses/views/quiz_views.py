@@ -185,7 +185,39 @@ def get_quiz_questions_view(request, lesson_id):
         # Get quiz configuration
         quiz_config = getattr(lesson, 'quiz_config', None)
         quiz_lesson = getattr(lesson, 'quiz', None)
-        
+
+        # Enforce time limit: if there is an in-progress attempt and it's expired, finalize and block showing questions
+        from datetime import timedelta
+        from django.utils import timezone
+        from courses.models import QuizAttempt
+        in_progress = QuizAttempt.objects.filter(student=request.user, lesson=lesson, is_in_progress=True).first()
+        if in_progress:
+            time_limit_min = quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30)
+            if in_progress.started_at and timezone.now() > (in_progress.started_at + timedelta(minutes=time_limit_min)):
+                # Finalize attempt with existing responses
+                all_questions = lesson.quiz_questions.all()
+                total_points = sum(q.points for q in all_questions)
+                attempt = in_progress
+                attempt.total_questions = all_questions.count()
+                attempt.total_points = total_points
+                # earned/correct already reflect recorded responses
+                attempt.is_in_progress = False
+                attempt.completed_at = timezone.now()
+                attempt.time_taken = attempt.completed_at - attempt.started_at if attempt.started_at else None
+                attempt.calculate_score()
+                return Response({
+                    "success": False,
+                    "message": "Time limit exceeded. Attempt submitted.",
+                    "data": {
+                        "attempt": {
+                            "id": attempt.id,
+                            "score": attempt.score,
+                            "passed": attempt.passed,
+                            "completed_at": attempt.completed_at
+                        }
+                    }
+                }, status=status.HTTP_403_FORBIDDEN)
+
         # Get questions
         randomize = quiz_config.randomize_questions if quiz_config else (quiz_lesson.randomize_questions if quiz_lesson else False)
         questions = get_quiz_questions(lesson, randomize=randomize)
