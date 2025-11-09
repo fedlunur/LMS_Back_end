@@ -37,7 +37,7 @@ class QuizConfigurationInline(admin.StackedInline):
 
 class QuizAnswerInline(admin.TabularInline):
     model = QuizAnswer
-    extra = 2
+    extra = 1
     fields = ("answer_text", "answer_image", "is_correct", "order")
 
 class QuizQuestionInline(admin.TabularInline):
@@ -144,18 +144,15 @@ class VideoLessonAdmin(admin.ModelAdmin):
     search_fields = ("lesson__title",)
     inlines = [VideoLessonAttachmentInline]
 
-
 @admin.register(QuizLesson)
 class QuizLessonAdmin(admin.ModelAdmin):
     list_display = ("id", "lesson", "type", "time_limit", "passing_score", "attempts", "question_count")
     list_filter = ("type",)
     search_fields = ("lesson__title", "lesson__description")
     autocomplete_fields = ("lesson",)
-    # Do not inline QuizQuestion here as the FK is to Lesson, not QuizLesson
 
     fieldsets = (
         ("Lesson Link", {"fields": ("lesson",)}),
-        # ("Quiz Type (required)", {"fields": ("type",)}),
         ("Settings", {
             "fields": (
                 "time_limit",
@@ -169,8 +166,10 @@ class QuizLessonAdmin(admin.ModelAdmin):
     )
 
     def question_count(self, obj):
-        return obj.questions.count()
+        return obj.lesson.quiz_questions.count()
+
     question_count.short_description = "Questions"
+
 
     # def save_formset(self, request, form, formset, change):
     #     instances = formset.save(commit=False)

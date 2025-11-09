@@ -261,12 +261,12 @@ class QuizLesson(models.Model):
         ('multiple-choice', 'Multiple Choice'),
         ('true-false', 'True/False'),
         ('fill-blank', 'Fill in Blank'),
-        ('drag-drop-text', 'Drag & Drop onto Text'),
-        ('drag-drop-image', 'Drag & Drop onto Image'),
-        ('drag-drop-matching', 'Drag & Drop Matching'),
-        ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
-        ('drag-drop-categorization', 'Drag & Drop Categorization'),
-        ('short-answer', 'Short Answer'),
+        # ('drag-drop-text', 'Drag & Drop onto Text'),
+        # ('drag-drop-image', 'Drag & Drop onto Image'),
+        # ('drag-drop-matching', 'Drag & Drop Matching'),
+        # ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
+        # ('drag-drop-categorization', 'Drag & Drop Categorization'),
+        # ('short-answer', 'Short Answer'),
     ]
 
     lesson = models.OneToOneField(
@@ -299,12 +299,12 @@ class QuizQuestion(models.Model):
         ('multiple-choice', 'Multiple Choice'),
         ('true-false', 'True/False'),
         ('fill-blank', 'Fill in Blank'),
-        ('drag-drop-text', 'Drag & Drop onto Text'),
-        ('drag-drop-image', 'Drag & Drop onto Image'),
-        ('drag-drop-matching', 'Drag & Drop Matching'),
-        ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
-        ('drag-drop-categorization', 'Drag & Drop Categorization'),
         ('short-answer', 'Short Answer'),
+        # ('drag-drop-text', 'Drag & Drop onto Text'),
+        # ('drag-drop-image', 'Drag & Drop onto Image'),
+        # ('drag-drop-matching', 'Drag & Drop Matching'),
+        # ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
+        # ('drag-drop-categorization', 'Drag & Drop Categorization'),
     ]
     
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_questions')
@@ -323,98 +323,98 @@ class QuizQuestion(models.Model):
         help_text="List of correct answers for blanks. For multiple blanks, use list of strings."
     )
     
-    # Drag and drop onto text (Cloze) fields
-    cloze_text = models.TextField(
-        blank=True, 
-        help_text="Text with blanks marked (e.g., 'The largest planet is ___.')"
-    )
-    cloze_answers = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="List of correct answers for each blank in order"
-    )
-    cloze_options = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="List of draggable options for cloze questions"
-    )
+    # # Drag and drop onto text (Cloze) fields
+    # cloze_text = models.TextField(
+    #     blank=True, 
+    #     help_text="Text with blanks marked (e.g., 'The largest planet is ___.')"
+    # )
+    # cloze_answers = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of correct answers for each blank in order"
+    # )
+    # cloze_options = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of draggable options for cloze questions"
+    # )
     
-    # Drag and drop onto image fields
-    background_image = models.ImageField(
-        upload_to='quiz_questions/drag_drop_images/', 
-        null=True, 
-        blank=True,
-        help_text="Background image for drag & drop onto image"
-    )
-    image_drop_zones = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="List of drop zones with coordinates: [{'id': 1, 'x': 100, 'y': 200, 'label': 'Nucleus'}, ...]"
-    )
-    image_drag_items = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="List of draggable items: [{'id': 1, 'text': 'Nucleus', 'image': 'url'}, ...]"
-    )
-    image_correct_mappings = models.JSONField(
-        default=dict, 
-        blank=True, 
-        help_text="Correct mappings: {'drag_item_id': 'drop_zone_id', ...}"
-    )
+    # # Drag and drop onto image fields
+    # background_image = models.ImageField(
+    #     upload_to='quiz_questions/drag_drop_images/', 
+    #     null=True, 
+    #     blank=True,
+    #     help_text="Background image for drag & drop onto image"
+    # )
+    # image_drop_zones = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of drop zones with coordinates: [{'id': 1, 'x': 100, 'y': 200, 'label': 'Nucleus'}, ...]"
+    # )
+    # image_drag_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of draggable items: [{'id': 1, 'text': 'Nucleus', 'image': 'url'}, ...]"
+    # )
+    # image_correct_mappings = models.JSONField(
+    #     default=dict, 
+    #     blank=True, 
+    #     help_text="Correct mappings: {'drag_item_id': 'drop_zone_id', ...}"
+    # )
     
-    # Drag and drop matching fields
-    matching_left_items = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Left side items: [{'id': 1, 'text': 'France', 'image': 'url'}, ...]"
-    )
-    matching_right_items = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Right side items: [{'id': 1, 'text': 'Paris', 'image': 'url'}, ...]"
-    )
-    matching_correct_pairs = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Correct pairs: [{'left_id': 1, 'right_id': 2}, ...]"
-    )
+    # # Drag and drop matching fields
+    # matching_left_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Left side items: [{'id': 1, 'text': 'France', 'image': 'url'}, ...]"
+    # )
+    # matching_right_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Right side items: [{'id': 1, 'text': 'Paris', 'image': 'url'}, ...]"
+    # )
+    # matching_correct_pairs = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Correct pairs: [{'left_id': 1, 'right_id': 2}, ...]"
+    # )
     
-    # Drag and drop sequencing fields
-    sequencing_items = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Items to sequence: [{'id': 1, 'text': 'Step 1', 'image': 'url'}, ...]"
-    )
-    sequencing_correct_order = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Correct order as list of item IDs: [1, 3, 2, 4]"
-    )
+    # # Drag and drop sequencing fields
+    # sequencing_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Items to sequence: [{'id': 1, 'text': 'Step 1', 'image': 'url'}, ...]"
+    # )
+    # sequencing_correct_order = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Correct order as list of item IDs: [1, 3, 2, 4]"
+    # )
     
-    # Drag and drop categorization fields
-    categorization_items = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Items to categorize: [{'id': 1, 'text': 'Dog', 'image': 'url'}, ...]"
-    )
-    categorization_categories = models.JSONField(
-        default=list, 
-        blank=True, 
-        help_text="Categories: [{'id': 1, 'name': 'Mammals', 'color': '#ff0000'}, ...]"
-    )
-    categorization_correct_mappings = models.JSONField(
-        default=dict, 
-        blank=True, 
-        help_text="Correct mappings: {'item_id': 'category_id', ...}"
-    )
+    # # Drag and drop categorization fields
+    # categorization_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Items to categorize: [{'id': 1, 'text': 'Dog', 'image': 'url'}, ...]"
+    # )
+    # categorization_categories = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Categories: [{'id': 1, 'name': 'Mammals', 'color': '#ff0000'}, ...]"
+    # )
+    # categorization_correct_mappings = models.JSONField(
+    #     default=dict, 
+    #     blank=True, 
+    #     help_text="Correct mappings: {'item_id': 'category_id', ...}"
+    # )
     
-    # Generic drag and drop fields (for backward compatibility)
-    drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items (deprecated)")
-    drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones (deprecated)")
-    drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings (deprecated)")
+    # # Generic drag and drop fields (for backward compatibility)
+    # drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items (deprecated)")
+    # drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones (deprecated)")
+    # drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings (deprecated)")
     
-    # Image support for advanced question types
-    option_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for multiple choice options")
+    # # Image support for advanced question types
+    # option_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for multiple choice options")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
