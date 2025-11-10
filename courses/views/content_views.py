@@ -42,14 +42,21 @@ def list_module_lessons_view(request, module_id):
     except Module.DoesNotExist:
         return Response({"success": False, "message": "Module not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if module.course.status != 'published' and not request.user.is_staff and module.course.instructor_id != request.user.id:
+    # Allow course instructor or staff to access regardless of publish status
+    is_instructor = (module.course.instructor_id == request.user.id) or request.user.is_staff
+    if module.course.status != 'published' and not is_instructor:
         return Response({"success": False, "message": "Module not accessible."}, status=status.HTTP_403_FORBIDDEN)
 
-    enrollment = Enrollment.objects.filter(student=request.user, course=module.course, payment_status='completed').first()
+    # Students must be enrolled to see unlock/completion; instructors can browse freely
+    enrollment = None
+    if not is_instructor:
+        enrollment = Enrollment.objects.filter(student=request.user, course=module.course, payment_status='completed').first()
     lessons = Lesson.objects.filter(module=module).order_by('order')
     data = []
     for lesson in lessons:
-        unlocked = False
+        # Keep behavior in sync with list_course_lessons_view:
+        # instructors/staff see everything unlocked; students require access checks
+        unlocked = True if is_instructor else False
         is_completed = False
         if enrollment:
             unlocked = is_lesson_accessible(request.user, lesson)
