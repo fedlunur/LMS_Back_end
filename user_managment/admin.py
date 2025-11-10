@@ -1,3 +1,4 @@
+from pyexpat.errors import messages
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import *
@@ -30,8 +31,13 @@ admin.site.register(User, CustomUserAdmin)
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name')
-    search_fields = ('name',)
+    list_display = ["name"]
+
+    def save_model(self, request, obj, form, change):
+        try:
+            super().save_model(request, obj, form, change)
+        except ValidationError as e:
+            messages.error(request, f"{e.message_dict.get('name', ['Validation error'])[0]}")
 
 @admin.register(UserRole)
 class UserRoleAdmin(admin.ModelAdmin):

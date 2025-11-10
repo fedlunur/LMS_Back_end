@@ -21,6 +21,13 @@ class RoleSerializer(serializers.ModelSerializer):
         model = Role
         fields = ['id', 'name']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        name = data.get('name')
+        if isinstance(name, str):
+            data['name'] = name.lower()
+        return data
+
 class UserRoleSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField()  # or use serializers.PrimaryKeyRelatedField()
     role = serializers.StringRelatedField()  # or use serializers.PrimaryKeyRelatedField()
@@ -52,8 +59,11 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         token['permissions'] = grouped_permissions
 
-        # Add user roles
-        token['roles'] = [{'id': role.role.id, 'name': role.role.name} for role in user.userrole_set.all()]
+        # Add user roles (lowercase names for consistency on frontend)
+        token['roles'] = [
+            {'id': role.role.id, 'name': (role.role.name.lower() if role.role and role.role.name else '')}
+            for role in user.userrole_set.all()
+        ]
 
         return token
 

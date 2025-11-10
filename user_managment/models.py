@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.utils.text import slugify
+from django.core.exceptions import ValidationError
 
 # Create your models here.
 class UserManager(BaseUserManager):
@@ -52,8 +53,34 @@ class UserManager(BaseUserManager):
 
 class Role(models.Model):
     name = models.CharField(max_length=100, unique=True)
+
+    def clean(self):
+        super().clean()
+        if self.name:
+            normalized = self.name.strip().lower()
+            # Canonicalize known aliases
+            if normalized in ('instructor',):
+                normalized = 'teacher'
+            if normalized in ('students',):
+                normalized = 'student'
+
+            # Check for case-insensitive duplicates
+            qs = Role.objects.filter(name__iexact=normalized)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({'name': 'Role with this name already exists.'})
+
+            # Assign normalized name after validation
+            self.name = normalized
+
+    def save(self, *args, **kwargs):
+        # Just save — validation happens via clean() in admin/forms
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
+
 
 
 class User(AbstractUser):
