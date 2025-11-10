@@ -231,6 +231,17 @@ class VideoLesson(models.Model):
     def __str__(self):
         return self.title or self.lesson.title
 
+    @property
+    def checkpoint_quizzes(self):
+        """
+        Convenience accessor linking a VideoLesson to its checkpoint quizzes.
+        Keeps the DB schema stable by leveraging the existing FK to Lesson.
+        """
+        try:
+            return VideoCheckpointQuiz.objects.filter(lesson=self.lesson).order_by("timestamp_seconds")
+        except Exception:
+            return VideoCheckpointQuiz.objects.none()
+
 
 class VideoLessonAttachment(models.Model):
     video_lesson = models.ForeignKey(
@@ -1055,8 +1066,10 @@ class VideoCheckpointQuiz(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        ordering = ['timestamp_seconds']
-        unique_together = ['lesson', 'timestamp_seconds']  # One quiz per timestamp per lesson
+        ordering = ['timestamp_seconds', 'id']
+        indexes = [
+            models.Index(fields=['lesson', 'timestamp_seconds']),
+        ]
         
        
         verbose_name_plural = "Video Check point Quiz"

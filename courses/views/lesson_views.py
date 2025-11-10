@@ -218,3 +218,82 @@ def get_lesson_detail_view(request, lesson_id):
         },
         "message": "Lesson detail retrieved successfully."
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_video_player_data_view(request, lesson_id):
+    """
+    Clean payload for video player + checkpoint quizzes.
+    Returns a single object with video metadata and embedded checkpoint quizzes.
+    """
+    try:
+        lesson = Lesson.objects.select_related('course', 'video').get(id=lesson_id)
+    except Lesson.DoesNotExist:
+        return Response({"success": False, "message": "Lesson not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Allow course instructor/staff to access regardless of locks or enrollment
+    is_instructor = (lesson.course.instructor_id == request.user.id) or request.user.is_staff
+
+    # Ensure enrollment and unlock for students only
+    if not is_instructor:
+        if not Enrollment.objects.filter(student=request.user, course=lesson.course, payment_status='completed').exists():
+            return Response({"success": False, "message": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
+        if not is_lesson_accessible(request.user, lesson):
+            return Response({"success": False, "message": "This lesson is locked. Please complete the previous lesson first."}, status=status.HTTP_403_FORBIDDEN)
+
+    if lesson.content_type != Lesson.ContentType.VIDEO or not hasattr(lesson, 'video'):
+        return Response({"success": False, "message": "This endpoint is only available for video lessons."}, status=status.HTTP_400_BAD_REQUEST)
+
+    video = lesson.video
+
+    def format_duration(value):
+        if not value:
+            return None
+        total_seconds = int(value.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def get_video_url():
+        if getattr(video, "youtube_url", None):
+            return video.youtube_url
+        if getattr(video, "video_file", None):
+            try:
+                return request.build_absolute_uri(video.video_file.url)
+            except Exception:
+                return None
+        return None
+
+    # Collect checkpoint quizzes grouped by timestamp
+    quizzes_qs = lesson.video_checkpoint_quizzes.all().order_by('timestamp_seconds', 'id')
+    grouped = {}
+    for q in quizzes_qs:
+        quiz_obj = {
+            "id": q.id,
+            "title": q.title,
+            "question_text": q.question_text,
+            "question_type": q.question_type,
+            "options": q.options,
+            "correct_answer_index": q.correct_answer_index,
+        }
+        if q.explanation:
+            quiz_obj["explanation"] = q.explanation
+        ts = int(q.timestamp_seconds)
+        grouped.setdefault(ts, []).append(quiz_obj)
+
+    checkpoint_quizzes = [
+        {"timestamp_seconds": ts, "quizzes": quizzes}
+        for ts, quizzes in sorted(grouped.items(), key=lambda x: x[0])
+    ]
+
+    payload = {
+        "id": lesson.id,
+        "title": video.title or lesson.title,
+        "video_url": get_video_url(),
+        "duration": format_duration(video.duration or lesson.duration),
+        "checkpoint_quizzes": checkpoint_quizzes,
+    }
+
+    return Response({"success": True, "data": payload, "message": "Video player data retrieved successfully."}, status=status.HTTP_200_OK)

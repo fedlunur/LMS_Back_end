@@ -7,6 +7,7 @@ from user_managment.views import *
 from courses.views import (
     GenericModelViewSet,
     mark_lesson_completed_view,
+    get_video_player_data_view,
     enroll_in_course_view,
     get_enrolled_courses_view,
     get_published_courses_view,
@@ -117,6 +118,7 @@ urlpatterns = [
     re_path(r'^api/module-lessons/(?P<module_id>\d+)/$', list_module_lessons_view, name='module_lessons'),
     re_path(r'^api/course-lessons/(?P<course_id>\d+)/$', list_course_lessons_view, name='course_lessons'),
     re_path(r'^api/lesson-detail/(?P<lesson_id>\d+)/$', get_lesson_detail_view, name='lesson_detail'),
+    re_path(r'^api/video-player/(?P<lesson_id>\d+)/$', get_video_player_data_view, name='video_player_data'),
     
     # Enrollment endpoints
     re_path(r'^api/enroll-course/(?P<course_id>\d+)/$', enroll_in_course_view, name='enroll_course'),
