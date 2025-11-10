@@ -210,6 +210,54 @@ def get_lesson_detail_view(request, lesson_id):
     elif lesson.content_type == Lesson.ContentType.VIDEO and hasattr(lesson, 'video'):
         content = DynamicFieldSerializer(lesson.video, model_name="videolesson").data
 
+        # Also include player payload (without exposing solutions)
+        video = lesson.video
+
+        def format_duration(value):
+            if not value:
+                return None
+            total_seconds = int(value.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        def get_video_url():
+            if getattr(video, "youtube_url", None):
+                return video.youtube_url
+            if getattr(video, "video_file", None):
+                try:
+                    return request.build_absolute_uri(video.video_file.url)
+                except Exception:
+                    return None
+            return None
+
+        quizzes_qs = lesson.video_checkpoint_quizzes.all().order_by('timestamp_seconds', 'id')
+        grouped = {}
+        for q in quizzes_qs:
+            quiz_obj = {
+                "id": q.id,
+                "title": q.title,
+                "question_text": q.question_text,
+                "question_type": q.question_type,
+                "options": q.options,
+            }
+            ts = int(q.timestamp_seconds)
+            grouped.setdefault(ts, []).append(quiz_obj)
+
+        checkpoint_quizzes = [
+            {"timestamp_seconds": ts, "quizzes": quizzes}
+            for ts, quizzes in sorted(grouped.items(), key=lambda x: x[0])
+        ]
+
+        content["player"] = {
+            "id": lesson.id,
+            "title": video.title or lesson.title,
+            "video_url": get_video_url(),
+            "duration": format_duration(video.duration or lesson.duration),
+            "checkpoint_quizzes": checkpoint_quizzes,
+        }
+
     return Response({
         "success": True,
         "data": {

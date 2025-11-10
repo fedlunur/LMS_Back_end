@@ -231,6 +231,17 @@ class VideoLesson(models.Model):
     def __str__(self):
         return self.title or self.lesson.title
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        # Allow only one source: either uploaded file OR YouTube URL (not both)
+        if self.video_file and self.youtube_url:
+            raise ValidationError({"youtube_url": "Provide either a video file or a YouTube URL, not both."})
+
+    def save(self, *args, **kwargs):
+        # Enforce validation at model level for generic serializers/forms
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     @property
     def checkpoint_quizzes(self):
         """
