@@ -1,7 +1,7 @@
 # views/base.py
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.contrib.auth import get_user_model
 
 from ..serializers import DynamicFieldSerializer
@@ -63,9 +63,9 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                 elif model_name == 'certificate':
                     queryset = queryset.filter(enrollment__student=user)
 
-        # Only show published courses to non-admins
-        if model_name == 'course' and not self.request.user.is_staff and self.request.user.is_authenticated:
-            queryset = queryset.filter(status='published')
+        # Only show published courses to regular users, but allow instructors to see their own drafts
+        if model_name == 'course' and self.request.user.is_authenticated and not self.request.user.is_staff:
+            queryset = queryset.filter(Q(status='published') | Q(instructor_id=self.request.user.id))
 
         # Query parameter filtering
         filter_kwargs = {}
@@ -121,7 +121,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         if not user.is_staff and user.is_authenticated:
             protected = [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
-                'lessonresource', 'quizquestion', 'quizanswer', 'quizconfiguration'
+                'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
+                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz'
             ]
             if model_name in protected:
                 try:
@@ -129,6 +130,7 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                     Module = model_mapping.get("module")
                     Lesson = model_mapping.get("lesson")
                     QuizQuestion = model_mapping.get("quizquestion")
+                    VideoCheckpointQuiz = model_mapping.get("videocheckpointquiz")
 
                     course = None
                     data = request.data
@@ -145,7 +147,7 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                         elif module_id and Module:
                             module = Module.objects.get(pk=module_id)
                             course = getattr(module, "course", None)
-                    elif model_name in ["videolesson", "quizlesson", "assignmentlesson", "articlelesson", "lessonresource", "quizconfiguration"]:
+                    elif model_name in ["videolesson", "quizlesson", "assignmentlesson", "articlelesson", "lessonresource", "lessonattachment", "quizconfiguration", "videocheckpointquiz"]:
                         lesson_id = data.get("lesson")
                         if lesson_id and Lesson:
                             lesson = Lesson.objects.get(pk=lesson_id)
@@ -161,6 +163,10 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                             question = QuizQuestion.objects.get(pk=question_id)
                             lesson = getattr(question, "lesson", None)
                             course = getattr(lesson, "course", None) if lesson else None
+                    elif model_name in ["course_overview", "course_faq", "courseresource", "courseannouncement"]:
+                        course_id = data.get("course")
+                        if course_id and Course:
+                            course = Course.objects.get(pk=course_id)
 
                     if not course or getattr(course, "instructor_id", None) != user.id:
                         return self.failure_response("You are not allowed to create this content.", status.HTTP_403_FORBIDDEN)
@@ -192,7 +198,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                 return self.failure_response("You are not allowed to modify this course.", status.HTTP_403_FORBIDDEN)
             elif model_name in [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
-                'lessonresource', 'quizquestion', 'quizanswer', 'quizconfiguration'
+                'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
+                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz'
             ]:
                 course = getattr(instance, 'course', None) or \
                          getattr(getattr(instance, 'module', None), 'course', None) or \
@@ -222,7 +229,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                 return self.failure_response("You are not allowed to delete this course.", status.HTTP_403_FORBIDDEN)
             elif model_name in [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
-                'lessonresource', 'quizquestion', 'quizanswer', 'quizconfiguration'
+                'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
+                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz'
             ]:
                 course = getattr(instance, 'course', None) or \
                          getattr(getattr(instance, 'module', None), 'course', None) or \
