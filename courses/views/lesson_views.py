@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from courses.services.access_service import is_lesson_accessible
 from courses.services.progress_service import mark_lesson_completed
-from courses.models import Course, Lesson, Enrollment, LessonProgress
+from courses.models import Course, Lesson, Enrollment, LessonProgress, VideoCheckpointQuiz, VideoCheckpointResponse
 from ..serializers import DynamicFieldSerializer
 
 
@@ -266,6 +266,14 @@ def get_video_player_data_view(request, lesson_id):
                 return None
         return None
 
+    # Reveal solutions only when explicitly requested by instructor/staff
+    include_solutions = False
+    try:
+        reveal_param = (request.query_params.get("include_solutions") or "").strip().lower()
+        include_solutions = bool(is_instructor and reveal_param in {"1", "true", "yes", "on"})
+    except Exception:
+        include_solutions = False
+
     # Collect checkpoint quizzes grouped by timestamp
     quizzes_qs = lesson.video_checkpoint_quizzes.all().order_by('timestamp_seconds', 'id')
     grouped = {}
@@ -276,10 +284,12 @@ def get_video_player_data_view(request, lesson_id):
             "question_text": q.question_text,
             "question_type": q.question_type,
             "options": q.options,
-            "correct_answer_index": q.correct_answer_index,
         }
-        if q.explanation:
-            quiz_obj["explanation"] = q.explanation
+        # Only expose solutions when explicitly requested by instructor/staff
+        if include_solutions:
+            quiz_obj["correct_answer_index"] = q.correct_answer_index
+            if q.explanation:
+                quiz_obj["explanation"] = q.explanation
         ts = int(q.timestamp_seconds)
         grouped.setdefault(ts, []).append(quiz_obj)
 
@@ -287,6 +297,127 @@ def get_video_player_data_view(request, lesson_id):
         {"timestamp_seconds": ts, "quizzes": quizzes}
         for ts, quizzes in sorted(grouped.items(), key=lambda x: x[0])
     ]
+
+    payload = {
+        "id": lesson.id,
+        "title": video.title or lesson.title,
+        "video_url": get_video_url(),
+        "duration": format_duration(video.duration or lesson.duration),
+        "checkpoint_quizzes": checkpoint_quizzes,
+    }
+
+    return Response({"success": True, "data": payload, "message": "Video player data retrieved successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_video_checkpoint_answer_view(request, lesson_id):
+    """
+    Submit an answer for a video checkpoint quiz and return correctness.
+    Does NOT expose the correct answer. Returns is_correct (and optional explanation).
+    Payload:
+    {
+        "checkpoint_quiz_id": number,
+        "selected_answer_index": number
+    }
+    """
+    try:
+        lesson = Lesson.objects.select_related('course').get(id=lesson_id)
+    except Lesson.DoesNotExist:
+        return Response({"success": False, "message": "Lesson not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Allow course instructor/staff for testing; students must be enrolled and lesson unlocked
+    is_instructor = (lesson.course.instructor_id == request.user.id) or request.user.is_staff
+    if not is_instructor:
+        if not Enrollment.objects.filter(student=request.user, course=lesson.course, payment_status='completed').exists():
+            return Response({"success": False, "message": "You are not enrolled in this course."}, status=status.HTTP_403_FORBIDDEN)
+        if not is_lesson_accessible(request.user, lesson):
+            return Response({"success": False, "message": "This lesson is locked. Please complete the previous lesson first."}, status=status.HTTP_403_FORBIDDEN)
+
+    data = request.data or {}
+    checkpoint_quiz_id = data.get("checkpoint_quiz_id")
+    selected_answer_index = data.get("selected_answer_index")
+    if checkpoint_quiz_id is None or selected_answer_index is None:
+        return Response({"success": False, "message": "checkpoint_quiz_id and selected_answer_index are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        checkpoint = VideoCheckpointQuiz.objects.get(id=checkpoint_quiz_id, lesson=lesson)
+    except VideoCheckpointQuiz.DoesNotExist:
+        return Response({"success": False, "message": "Checkpoint quiz not found for this lesson."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Create or update the student's response; model save() computes is_correct
+    resp, _ = VideoCheckpointResponse.objects.update_or_create(
+        student=request.user,
+        checkpoint_quiz=checkpoint,
+        defaults={
+            "lesson": lesson,
+            "selected_answer_index": int(selected_answer_index),
+        }
+    )
+
+    # Determine the next unanswered quiz at the same timestamp for this student
+    ts = int(checkpoint.timestamp_seconds)
+    quizzes_at_ts = list(
+        VideoCheckpointQuiz.objects.filter(lesson=lesson, timestamp_seconds=ts).order_by('id')
+    )
+    answered_ids = set(
+        VideoCheckpointResponse.objects.filter(
+            student=request.user,
+            checkpoint_quiz__in=quizzes_at_ts
+        ).values_list('checkpoint_quiz_id', flat=True)
+    )
+
+    correct_count = VideoCheckpointResponse.objects.filter(
+        student=request.user,
+        checkpoint_quiz__in=quizzes_at_ts,
+        is_correct=True
+    ).count()
+    total_in_ts = len(quizzes_at_ts)
+    all_answered = len(answered_ids) >= total_in_ts
+    score_in_ts = round((correct_count / total_in_ts) * 100, 2) if total_in_ts else 0.0
+
+    next_quiz_id = None
+    # Prefer the next quiz after the current one at this timestamp
+    passed_current = False
+    for q in quizzes_at_ts:
+        if q.id == checkpoint.id:
+            passed_current = True
+            continue
+        if passed_current and q.id not in answered_ids:
+            next_quiz_id = q.id
+            break
+    # If none found after current, consider earlier ones at this timestamp that are unanswered
+    if next_quiz_id is None:
+        for q in quizzes_at_ts:
+            if q.id not in answered_ids:
+                next_quiz_id = q.id
+                break
+
+    response_payload = {
+        "checkpoint_quiz_id": checkpoint.id,
+        "is_correct": bool(resp.is_correct),
+        "timestamp_seconds": ts,
+        "next_quiz_id": next_quiz_id,
+        "answered_count_in_timestamp": len(answered_ids),
+        "total_in_timestamp": total_in_ts,
+        "correct_count_in_timestamp": correct_count,
+        "score_in_timestamp": score_in_ts,
+        "all_answered_in_timestamp": all_answered,
+    }
+    # Optionally return explanation after answering
+    if getattr(checkpoint, "explanation", None):
+        response_payload["explanation"] = checkpoint.explanation
+
+    # Reveal the correct answer upon submission (but never in the GET payload)
+    try:
+        response_payload["correct_answer_index"] = int(checkpoint.correct_answer_index)
+        opts = checkpoint.options or []
+        if isinstance(opts, list) and 0 <= checkpoint.correct_answer_index < len(opts):
+            response_payload["correct_answer"] = opts[checkpoint.correct_answer_index]
+    except Exception:
+        pass
+
+    return Response({"success": True, "data": response_payload, "message": "Answer submitted."}, status=status.HTTP_200_OK)
 
     payload = {
         "id": lesson.id,
