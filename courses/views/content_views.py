@@ -11,15 +11,24 @@ from courses.services.access_service import is_lesson_accessible, is_module_acce
 @permission_classes([IsAuthenticated])
 def list_course_modules_view(request, course_id):
     try:
-        course = Course.objects.get(id=course_id, status='published')
+        course = Course.objects.get(id=course_id)
     except Course.DoesNotExist:
-        return Response({"success": False, "message": "Course not found or not published."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    enrollment = Enrollment.objects.filter(student=request.user, course=course, payment_status='completed').first()
+    # Allow course instructor or staff to browse regardless of publish status
+    is_instructor = (course.instructor_id == request.user.id) or request.user.is_staff
+    if course.status != 'published' and not is_instructor:
+        return Response({"success": False, "message": "Course not accessible."}, status=status.HTTP_403_FORBIDDEN)
+
+    # Students must be enrolled; instructors can browse freely
+    enrollment = None
+    if not is_instructor:
+        enrollment = Enrollment.objects.filter(student=request.user, course=course, payment_status='completed').first()
     modules = Module.objects.filter(course=course).annotate(lesson_count=Count('lessons')).order_by('order')
     data = []
     for m in modules:
-        is_unlocked = False
+        # Instructors/staff: unlocked; students: check module access
+        is_unlocked = True if is_instructor else False
         if enrollment:
             is_unlocked = is_module_accessible(request.user, m)
         data.append({

@@ -94,7 +94,17 @@ def list_course_lessons_view(request, course_id):
     lessons = Lesson.objects.filter(course=course).order_by('module__order', 'order')
     data = []
     for lesson in lessons:
+        # Keep behavior in sync with list_module_lessons_view:
+        # instructors/staff see everything unlocked; students require access checks
         unlocked = True if is_instructor else is_lesson_accessible(request.user, lesson)
+
+        # Include completion flag for consistency with module-lessons
+        is_completed = False
+        if enrollment:
+            lp = LessonProgress.objects.filter(enrollment=enrollment, lesson=lesson).first()
+            if lp:
+                is_completed = lp.completed
+
         data.append({
             'id': lesson.id,
             'title': lesson.title,
@@ -103,6 +113,7 @@ def list_course_lessons_view(request, course_id):
             'module_id': lesson.module_id,
             'order': lesson.order,
             'unlocked': unlocked,
+            'is_completed': is_completed,
         })
     return Response({"success": True, "data": data, "message": "Lessons retrieved successfully."}, status=status.HTTP_200_OK)
 
