@@ -67,6 +67,10 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
         for attr_name in dir(model):
             attr = getattr(model, attr_name, None)
             if isinstance(attr, property):
+                # Avoid serializing heavy/complex properties that yield QuerySets or models
+                # The video player has a dedicated endpoint; do not expose checkpoint_quizzes here
+                if model.__name__ == "VideoLesson" and attr_name == "checkpoint_quizzes":
+                    continue
                 self.fields[attr_name] = serializers.ReadOnlyField()
 
         # ----------------- HANDLE FOREIGN KEYS -----------------
