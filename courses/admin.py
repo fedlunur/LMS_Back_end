@@ -208,7 +208,7 @@ class LessonResourceAdmin(admin.ModelAdmin):
 
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
-    list_display = ("student", "course", "progress", "is_completed", "enrolled_at")
+    list_display = ("student", "course", "payment_status", "progress", "is_completed", "enrolled_at")
     list_filter = ("is_completed", "payment_status")
     search_fields = ("student__email", "course__title")
     readonly_fields = ("progress", "is_completed", "enrolled_at", "last_accessed", "completed_at")

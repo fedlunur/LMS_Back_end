@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'user_managment',
     'courses',
     'grading',
+    'payments',
   
    
   
@@ -278,3 +279,14 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
+
+# -------------------- STRIPE / PAYMENTS --------------------
+# These should be set in environment variables in production
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+
+# Frontend URLs for Stripe redirects
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:8888')
+STRIPE_SUCCESS_PATH = os.getenv('STRIPE_SUCCESS_PATH', '/payment/success')
+STRIPE_CANCEL_PATH = os.getenv('STRIPE_CANCEL_PATH', '/payment/cancel')

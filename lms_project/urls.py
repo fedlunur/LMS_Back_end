@@ -53,6 +53,7 @@ router = DefaultRouter()
 """ structure Routes """
 # setting
 
+from payments.views import create_checkout_session_view, stripe_webhook_view, confirm_checkout_session_view
 
 
 router = DefaultRouter()           
@@ -168,6 +169,14 @@ urlpatterns = [
     # Generics
     re_path("api/", include(router.urls)),
     re_path("api/constants/", constants_view, name="constants"),
+
+    # Payments
+    re_path(r'^api/payments/create-checkout-session/(?P<course_id>\d+)/$', create_checkout_session_view, name='create_checkout_session'),
+    # Alias to match frontend expectation
+    re_path(r'^api/payments/checkout/(?P<course_id>\d+)/$', create_checkout_session_view, name='checkout_alias'),
+    re_path(r'^api/payments/stripe/webhook/$', stripe_webhook_view, name='stripe_webhook'),
+    # Success page can call this to finalize by session_id
+    re_path(r'^api/payments/checkout/session/(?P<session_id>[^/]+)/confirm/$', confirm_checkout_session_view, name='confirm_checkout_session'),
   
     ] 
 if settings.DEBUG:

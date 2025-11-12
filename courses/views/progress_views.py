@@ -64,6 +64,13 @@ def get_course_progress_view(request, course_id):
     try:
         enrollment = Enrollment.objects.get(student=request.user, course_id=course_id)
         
+        # Enforce payment completion before exposing progress
+        if enrollment.payment_status != 'completed' or not enrollment.is_enrolled:
+            return Response({
+                "success": False,
+                "message": "Payment not completed. Please finish the payment first."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         # Get module progress
         module_progress_list = ModuleProgress.objects.filter(
             enrollment=enrollment

@@ -14,7 +14,8 @@ def enroll_user_in_course(user, course):
             course=course,
             defaults={
                 'progress': 0.0,
-                'payment_status': 'pending'
+                'payment_status': 'pending',
+                'is_enrolled': False
             }
         )
         if not created:
@@ -49,7 +50,10 @@ def complete_payment(enrollment_id):
             return False, "Payment already completed."
         
         enrollment.payment_status = 'completed'
-        enrollment.save()
+        enrollment.is_enrolled = True
+        enrollment.save(update_fields=['payment_status', 'is_enrolled'])
+        # Unlock first module on activation
+        enrollment.unlock_first_module()
         enrollment.calculate_progress()
         return True, "Payment completed successfully. Enrollment is now active."
     except Enrollment.DoesNotExist:

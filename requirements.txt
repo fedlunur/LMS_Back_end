@@ -19,3 +19,4 @@ daphne>=4.0
 channels>=4.0
 whitenoise
 channels==4.3.0
+stripe==13.2.0
