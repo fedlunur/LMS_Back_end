@@ -131,13 +131,36 @@ def submit_final_assessment(user, course_id, responses):
                 defaults={'grade': 'A' if attempt.score >= 90 else 'B' if attempt.score >= 80 else 'C'}
             )
         
-        return True, "Assessment submitted successfully.", {
+        # Prepare enriched payload including certificate and student details if available
+        cert = getattr(enrollment, 'certificate', None)
+        student = enrollment.student
+        course = enrollment.course
+
+        payload = {
             'score': attempt.score,
             'passed': attempt.passed,
             'correct_answers': attempt.correct_answers,
             'total_questions': attempt.total_questions,
-            'attempt_number': attempt.attempt_number
+            'attempt_number': attempt.attempt_number,
+            'enrollment_id': enrollment.id,
+            'student': {
+                'id': student.id,
+                'name': student.get_full_name(),
+                'email': student.email,
+            },
+            'course': {
+                'id': course.id,
+                'title': course.title,
+            },
         }
+        if cert:
+            payload['certificate'] = {
+                'certificate_number': cert.certificate_number,
+                'issued_date': cert.issued_date,
+                'grade': cert.grade,
+            }
+
+        return True, "Assessment submitted successfully.", payload
     
     except Enrollment.DoesNotExist:
         return False, "You are not enrolled in this course.", None

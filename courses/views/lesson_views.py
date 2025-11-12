@@ -42,7 +42,10 @@ def mark_lesson_completed_view(request, lesson_id):
                 except Lesson.DoesNotExist:
                     next_unlocked = False
 
-            return Response({
+            # Enrich with student/course/certificate context if certificate exists (auto-issued when appropriate)
+            cert = getattr(enrollment, 'certificate', None)
+
+            base_data = {
                 "success": True,
                 "message": message,
                 "data": {
@@ -53,9 +56,25 @@ def mark_lesson_completed_view(request, lesson_id):
                         "is_completed": enrollment.is_completed
                     },
                     "next_lesson_unlocked": bool(next_unlocked),
-                    "next_lesson_id": next_lesson_id
+                    "next_lesson_id": next_lesson_id,
+                    "student": {
+                        "id": enrollment.student.id,
+                        "name": enrollment.student.get_full_name(),
+                        "email": enrollment.student.email,
+                    },
+                    "course": {
+                        "id": lesson.course.id,
+                        "title": lesson.course.title,
+                    },
                 }
-            }, status=status.HTTP_200_OK)
+            }
+            if cert:
+                base_data["data"]["certificate"] = {
+                    "certificate_number": cert.certificate_number,
+                    "issued_date": cert.issued_date,
+                    "grade": cert.grade,
+                }
+            return Response(base_data, status=status.HTTP_200_OK)
         except (Lesson.DoesNotExist, Enrollment.DoesNotExist, LessonProgress.DoesNotExist):
             return Response({
                 "success": True,
@@ -151,7 +170,10 @@ def mark_lesson_completed_view(request, lesson_id):
                 except Lesson.DoesNotExist:
                     next_unlocked = False
 
-            return Response({
+            # Enrich with student/course/certificate context if certificate exists (auto-issued when appropriate)
+            cert = getattr(enrollment, 'certificate', None)
+
+            base_data = {
                 "success": True,
                 "message": message,
                 "data": {
@@ -162,9 +184,25 @@ def mark_lesson_completed_view(request, lesson_id):
                         "is_completed": enrollment.is_completed
                     },
                     "next_lesson_unlocked": bool(next_unlocked),
-                    "next_lesson_id": next_lesson_id
+                    "next_lesson_id": next_lesson_id,
+                    "student": {
+                        "id": enrollment.student.id,
+                        "name": enrollment.student.get_full_name(),
+                        "email": enrollment.student.email,
+                    },
+                    "course": {
+                        "id": lesson.course.id,
+                        "title": lesson.course.title,
+                    },
                 }
-            }, status=status.HTTP_200_OK)
+            }
+            if cert:
+                base_data["data"]["certificate"] = {
+                    "certificate_number": cert.certificate_number,
+                    "issued_date": cert.issued_date,
+                    "grade": cert.grade,
+                }
+            return Response(base_data, status=status.HTTP_200_OK)
         except (Lesson.DoesNotExist, Enrollment.DoesNotExist, LessonProgress.DoesNotExist):
             return Response({
                 "success": True,

@@ -22,7 +22,7 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         sensitive = {
             'enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt',
             'assignmentsubmission', 'assessmentattempt', 'certificate',
-            'conversation', 'message'
+            'conversation', 'message', 'courserating'
         }
 
         if self.action in ["list", "retrieve"]:
@@ -50,7 +50,7 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         # Apply user-based filtering for restricted models
         if model_name in [
             'enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt',
-            'assignmentsubmission', 'assessmentattempt', 'certificate'
+            'assignmentsubmission', 'assessmentattempt', 'certificate', 'courserating'
         ]:
             if not self.request.user.is_staff and self.request.user.is_authenticated:
                 user = self.request.user
@@ -62,6 +62,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(student=user)
                 elif model_name == 'certificate':
                     queryset = queryset.filter(enrollment__student=user)
+                elif model_name == 'courserating':
+                    queryset = queryset.filter(student=user)
 
         # Only show published courses to regular users, but allow instructors to see their own drafts
         if model_name == 'course' and self.request.user.is_authenticated and not self.request.user.is_staff:
@@ -174,6 +176,44 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                     # Fall back to deny if we cannot resolve ownership safely
                     return self.failure_response("You are not allowed to create this content.", status.HTTP_403_FORBIDDEN)
 
+        # Student review upsert: allow a single rating per (course, student)
+        if model_name == "courserating":
+            try:
+                Course = model_mapping["course"]
+                Enrollment = model_mapping["enrollment"]
+                CourseRating = model_mapping["courserating"]
+            except Exception:
+                return self.failure_response("Rating model not available.")
+
+            if not user.is_authenticated:
+                return self.failure_response("Authentication required.", status.HTTP_401_UNAUTHORIZED)
+
+            course_id = request.data.get("course")
+            if not course_id:
+                return self.failure_response({"course": ["This field is required."]})
+
+            try:
+                course = Course.objects.get(pk=course_id)
+            except Course.DoesNotExist:
+                return self.failure_response("Course not found.", status.HTTP_404_NOT_FOUND)
+
+            # Must be enrolled and have completed the course to rate
+            enrollment = Enrollment.objects.filter(student=user, course=course, payment_status='completed').first()
+            if not enrollment or not getattr(enrollment, "is_completed", False):
+                return self.failure_response("You can rate a course only after completing it.", status.HTTP_403_FORBIDDEN)
+
+            defaults = {"enrollment": enrollment}
+            for fld in ["rating", "review_title", "review_text", "content_quality", "instructor_quality", "difficulty_level", "value_for_money", "is_public"]:
+                if fld in request.data:
+                    defaults[fld] = request.data.get(fld)
+
+            obj, _ = CourseRating.objects.update_or_create(
+                course=course,
+                student=user,
+                defaults=defaults,
+            )
+            return self.success_response(self.get_serializer(obj).data, "Rating submitted successfully.", status.HTTP_200_OK)
+
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             instance = serializer.save()
@@ -181,6 +221,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                 self.get_serializer(instance).data, "Created successfully", status.HTTP_201_CREATED
             )
         return self.failure_response(serializer.errors)
+
+        # Note: Above is default flow; custom flows may early-return before this point
 
     # Update
     def update(self, request, *args, **kwargs):
@@ -214,6 +256,9 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                            getattr(getattr(instance, 'enrollment', None), 'student_id', None)
                 if owner_id and owner_id != user.id:
                     return self.failure_response("You are not allowed to modify this record.", status.HTTP_403_FORBIDDEN)
+            elif model_name == 'courserating':
+                if getattr(instance, 'student_id', None) != user.id:
+                    return self.failure_response("You are not allowed to modify this review.", status.HTTP_403_FORBIDDEN)
 
         serializer.save()
         return self.success_response(serializer.data, "Updated successfully")
@@ -245,6 +290,9 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                            getattr(getattr(instance, 'enrollment', None), 'student_id', None)
                 if owner_id and owner_id != user.id:
                     return self.failure_response("You are not allowed to delete this record.", status.HTTP_403_FORBIDDEN)
+            elif model_name == 'courserating':
+                if getattr(instance, 'student_id', None) != user.id:
+                    return self.failure_response("You are not allowed to delete this review.", status.HTTP_403_FORBIDDEN)
 
         instance.delete()
         return self.success_response({}, "Deleted successfully")

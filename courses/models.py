@@ -79,6 +79,10 @@ class Course(models.Model):
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
     issue_certificate = models.BooleanField(default=False)
+    requires_final_assessment = models.BooleanField(
+        default=False,
+        help_text="If enabled, student must pass the final assessment before certificate is issued."
+    )
     # is_public = models.BooleanField(default=True) # Future use: control visibility of course in catalog 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -780,6 +784,19 @@ class Enrollment(models.Model):
                 self.is_completed = False
                 self.completed_at = None
         self.save(update_fields=['progress', 'completed_lessons', 'is_completed', 'completed_at'])
+
+        # Auto-issue certificate when course is completed and certification is enabled,
+        # only if the course does NOT require passing a final assessment.
+        # If a final assessment is required, certificate issuance happens after a passing attempt.
+        try:
+            if self.is_completed and getattr(self.course, "issue_certificate", False):
+                requires_assessment = bool(getattr(self.course, "requires_final_assessment", False))
+                if not requires_assessment:
+                    from .models import Certificate  # local import to avoid circulars during app loading
+                    Certificate.objects.get_or_create(enrollment=self)
+        except Exception:
+            # Soft-fail certificate issuance to avoid blocking progress updates
+            pass
         return self.progress
     
     def unlock_first_module(self):
