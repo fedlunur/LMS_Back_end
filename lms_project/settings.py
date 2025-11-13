@@ -303,7 +303,7 @@ EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
 
 
 # Email / verification defaults
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@emeraldlms.local")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@emerald.edu.et")
 SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", DEFAULT_FROM_EMAIL)
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Emerald LMS")
 EMAIL_VERIFICATION_SUBJECT = os.getenv(
