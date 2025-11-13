@@ -108,6 +108,7 @@ urlpatterns = [
     re_path(r'^api/token/check/?$', TokenCheckView.as_view(), name='token_check'),
     re_path(r'^api/logout/?$', LogoutView.as_view(), name='logout'),
     re_path(r'^api/register/?$', UserRegister.as_view(), name='register'),
+    re_path(r'^api/register/verify/?$', VerifyEmailOTP.as_view(), name='verify_email'),
     re_path(r'^api/login/?$', UserLogin.as_view(), name='login'),
     re_path(r'^api/user_logout/?$', UserLogout.as_view(), name='user_logout'),
     re_path(r'^api/mark-lesson-completed/(?P<lesson_id>\d+)/$', mark_lesson_completed_view, name='mark_lesson_completed'),

@@ -1,20 +1,23 @@
 # Default:
 
+import logging
+
+from django.core.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken, TokenError
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError, AccessToken
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import login, logout
-from .serializers import *
-from collections import defaultdict
-from django.db.models import Q
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db import IntegrityError
-from rest_framework_simplejwt.tokens import AccessToken
 
-from rest_framework import generics
+from .models import EmailVerificationToken, User
+from .serializers import *
+from .services.email_verification import send_email_verification
+
+logger = logging.getLogger(__name__)
 class TokenCheckView(APIView):
     permission_classes = [AllowAny]  # No authentication required to check token
 
@@ -83,34 +86,39 @@ class UserRegister(APIView):
     authentication_classes = []
 
     def post(self, request):
-        print("📌 Incoming request data:", request.data)  # Log request data
+        logger.debug("Incoming registration request: %s", request.data)
 
-        
-        clean_data = self.custom_validation(request.data)  # Validate data first
-        print("✅ Data after validation:", clean_data)  # Log validated data
-            
-        serializer = UserRegisterSerializer(data=clean_data)  # Attempt to create serializer
-        print("🛠️ Serializer initialized successfully.")
         try:
-            if serializer.is_valid(raise_exception=True):
-                user = serializer.save()
-                token = self.get_token(user)
-                return Response(self.get_user_data(user, token), status=status.HTTP_201_CREATED)
-
-        except ValidationError as e:
-            print("⚠️ ValidationError:", e)  # Log error
-            errors = serializer.errors if 'serializer' in locals() else {"error": "Serializer failed before validation"}
+            clean_data = self.custom_validation(request.data)
+            logger.debug("Registration payload after custom validation: %s", clean_data)
+        except ValidationError as exc:
+            logger.warning("Custom validation failed: %s", exc)
             return Response(
                 {
                     "success": False,
                     "message": "Validation failed.",
-                    "errors": errors,
+                    "errors": getattr(exc, "message_dict", exc.messages if hasattr(exc, "messages") else str(exc)),
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
+        serializer = UserRegisterSerializer(data=clean_data)
+        if not serializer.is_valid():
+            logger.debug("Serializer validation errors: %s", serializer.errors)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Validation failed.",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = serializer.save()
+            logger.info("User %s created successfully", user.email)
         except IntegrityError as e:
-            print("⚠️ IntegrityError:", e)
+            logger.exception("Integrity error while creating user")
             return Response(
                 {
                     "success": False,
@@ -118,9 +126,8 @@ class UserRegister(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         except Exception as e:
-            print("❌ Unexpected error:", e)
+            logger.exception("Unexpected error while creating user")
             return Response(
                 {
                     "success": False,
@@ -129,8 +136,34 @@ class UserRegister(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+        try:
+            send_email_verification(user)
+        except Exception:
+            logger.exception("Failed to send verification email to %s", user.email)
+            return Response(
+                {
+                    "success": False,
+                    "message": "Account created but failed to send verification email. Please contact support.",
+                    "code": "verification_email_failed",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "result": {
+                    "id": user.id,
+                    "email": user.email,
+                    "is_email_verified": user.is_email_verified,
+                },
+                "message": "Account created. Please check your email for the verification code.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
     def custom_validation(self, data):
-        print("🔍 Validating input data...")
+        logger.debug("Running custom validation for registration payload.")
 
         # Ensure password length is valid
         password = data.get('password', '').strip()
@@ -151,38 +184,107 @@ class UserRegister(APIView):
         return data
 
 
+class VerifyEmailOTP(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-    def get_token(self, user):
-        """
-        Generates and returns both access and refresh tokens for the user.
-        """
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        code = request.data.get("code", "").strip()
+
+        if not email or not code:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Both email and code are required.",
+                    "code": "missing_fields",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "No account found with this email address.",
+                    "code": "account_not_found",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if user.is_email_verified:
+            refresh = RefreshToken.for_user(user)
+            return Response(
+                {
+                    "success": True,
+                    "message": "Email already verified.",
+                    "result": {
+                        "id": user.id,
+                        "email": user.email,
+                        "is_email_verified": user.is_email_verified,
+                        "access_token": str(refresh.access_token),
+                        "refresh_token": str(refresh),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        token = (
+            EmailVerificationToken.objects.filter(
+                user=user, code=code, is_used=False
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not token:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid verification code.",
+                    "code": "invalid_code",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if token.is_expired:
+            token.mark_used()
+            return Response(
+                {
+                    "success": False,
+                    "message": "Verification code has expired. Please request a new code.",
+                    "code": "code_expired",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        token.mark_used()
+
+        user.is_email_verified = True
+        user.enabled = True
+        if not user.is_active:
+            user.is_active = True
+        user.isLoggedIn = 1
+        user.save(update_fields=["is_email_verified", "enabled", "is_active", "isLoggedIn"])
+
         refresh = RefreshToken.for_user(user)
-        return {
-            "access": str(refresh.access_token),
-            "refresh": str(refresh)
-        }
 
-    def get_user_data(self, user, token):
-        return {
-            "success": True,
-            "result": {
-                "id": user.id,
-                # "accessToken": token.get("access", ""),
-                # "refreshToken": token.get("refresh", ""),
-                "access_token": token.get("access", ""),
-                "refresh_token": token.get("refresh", ""),
-                "name":user.first_name ,
-                "first_name": user.first_name,
-                "middle_name": user.middle_name,
-                "last_name": user.last_name,
-                "role": (user.role.name.lower() if user.role and user.role.name else ""),
-                "status": "Active",
-                "email": user.email,
-                "isLoggedIn": 1,
+        return Response(
+            {
+                "success": True,
+                "message": "Email verified successfully.",
+                "result": {
+                    "id": user.id,
+                    "email": user.email,
+                    "is_email_verified": user.is_email_verified,
+                    "access_token": str(refresh.access_token),
+                    "refresh_token": str(refresh),
+                },
             },
-            "message": "Account created successfully!",
-        }
-
+            status=status.HTTP_200_OK,
+        )
 
 class UserLogin(APIView):
     permission_classes = [AllowAny]
@@ -215,6 +317,16 @@ class UserLogin(APIView):
             return Response(
                 {'success': False, 'message': 'Incorrect password. Please try again.'},
                 status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not user.is_email_verified:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'Email not verified. Please verify your email address to continue.',
+                    'code': 'email_not_verified',
+                },
+                status=status.HTTP_403_FORBIDDEN
             )
 
         if not user.enabled:

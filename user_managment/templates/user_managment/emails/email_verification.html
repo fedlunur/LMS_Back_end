@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Email Verification</title>
+</head>
+<body style="font-family: Arial, Helvetica, sans-serif; background-color: #f6f8fb; padding: 24px;">
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;border-radius:12px;padding:32px;box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+                    <tr>
+                        <td>
+                            <h2 style="margin:0 0 16px;font-size:22px;color:#1a2b5f;">Hi {{ first_name|default:full_name|default:email }},</h2>
+                            <p style="margin:0 0 24px;font-size:16px;color:#3a3a3a;line-height:1.5;">
+                                Thanks for creating your {{ project_name }} account.
+                                Please use the verification code below to confirm your email address.
+                            </p>
+                            <div style="margin:24px 0;padding:16px;border-radius:8px;background:#eef4ff;border:1px solid #cbd8ff;text-align:center;">
+                                <p style="margin:0;font-size:32px;letter-spacing:12px;font-weight:700;color:#1a2b5f;">{{ code }}</p>
+                            </div>
+                            <p style="margin:0 0 16px;font-size:14px;color:#6b7280;">
+                                This code will expire in {{ expires_minutes }} minutes.
+                            </p>
+                            <p style="margin:0 0 16px;font-size:14px;color:#6b7280;">
+                                If you did not create this account, please ignore this email.
+                            </p>
+                            {% if support_email %}
+                            <p style="margin:0;font-size:14px;color:#6b7280;">
+                                Need help? Contact us at <a href="mailto:{{ support_email }}" style="color:#1a2b5f;text-decoration:none;">{{ support_email }}</a>.
+                            </p>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+                <p style="margin:24px 0 0;font-size:12px;color:#9ba4b4;">
+                    © {{ project_name }}. All rights reserved.
+                </p>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+

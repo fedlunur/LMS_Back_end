@@ -143,12 +143,14 @@ class UserRegisterSerializer(serializers.ModelSerializer):
             middle_name=validated_data.get('middle_name', ''),
             last_name=validated_data.get('last_name', ''),
             role=role,
-            is_staff=False  # Students should not be staff
+            is_staff=False,  # Students should not be staff
+            enabled=True,
+            is_email_verified=False,
         )
         
         # Set the password securely
         user.set_password(validated_data['password'])
-        user.isLoggedIn=1
+        user.isLoggedIn = 0
         user.save()
         print("User is saved !!!!!!!")
         return user

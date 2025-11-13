@@ -1,14 +1,12 @@
-from django.db import models
-from django.db.models.signals import post_save # helps 
-from django.contrib.auth.models import AbstractUser
-from django.core.mail import send_mail
-from django.dispatch import receiver
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
-from django.utils import timezone
-from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, AbstractUser
 from django.contrib.contenttypes.fields import GenericForeignKey
-from django.utils.text import slugify
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models.signals import post_save  # helps
+from django.dispatch import receiver
+from django.utils import timezone
 
 # Create your models here.
 class UserManager(BaseUserManager):
@@ -94,6 +92,7 @@ class User(AbstractUser):
     status = models.CharField(max_length=255, default='Active')
     removed = models.BooleanField(default=False)
     enabled = models.BooleanField(default=True)
+    is_email_verified = models.BooleanField(default=False)
     created = models.DateTimeField(default=timezone.now)
     isLoggedIn = models.IntegerField(default=0)
     # Instructor-specific fields
@@ -137,6 +136,39 @@ class User(AbstractUser):
         verbose_name = 'user'
         verbose_name_plural = 'users'
         
+
+class EmailVerificationToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_verification_tokens",
+    )
+    code = models.CharField(max_length=6)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "code"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def mark_used(self, commit: bool = True):
+        self.is_used = True
+        if commit:
+            self.save(update_fields=["is_used"])
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        status = "used" if self.is_used else "pending"
+        return f"{self.user.email} - {self.code} ({status})"
+
+
 class UserRole(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     role = models.ForeignKey(Role, on_delete=models.CASCADE)

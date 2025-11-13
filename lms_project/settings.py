@@ -290,3 +290,26 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
 FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:8888')
 STRIPE_SUCCESS_PATH = os.getenv('STRIPE_SUCCESS_PATH', '/payment/success')
 STRIPE_CANCEL_PATH = os.getenv('STRIPE_CANCEL_PATH', '/payment/cancel')
+
+
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
+
+
+
+# Email / verification defaults
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@emeraldlms.local")
+SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", DEFAULT_FROM_EMAIL)
+PROJECT_NAME = os.getenv("PROJECT_NAME", "Emerald LMS")
+EMAIL_VERIFICATION_SUBJECT = os.getenv(
+    "EMAIL_VERIFICATION_SUBJECT",
+    f"Verify your email for {PROJECT_NAME}",
+)
+EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES = int(
+    os.getenv("EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES", "15")
+)
