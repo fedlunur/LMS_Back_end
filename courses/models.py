@@ -765,6 +765,7 @@ class Enrollment(models.Model):
     def calculate_progress(self):
         """Calculate course progress based on completed lessons"""
         total_lessons = Lesson.objects.filter(course=self.course).count()
+        was_completed = bool(self.is_completed)
         if total_lessons == 0:
             self.progress = 0.0
             self.completed_lessons = 0
@@ -796,6 +797,14 @@ class Enrollment(models.Model):
                     Certificate.objects.get_or_create(enrollment=self)
         except Exception:
             # Soft-fail certificate issuance to avoid blocking progress updates
+            pass
+
+        # Notify course completion on first transition to completed
+        try:
+            if not was_completed and self.is_completed:
+                from courses.services.email_service import send_course_completed_email
+                send_course_completed_email(self)
+        except Exception:
             pass
         return self.progress
     

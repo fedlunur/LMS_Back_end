@@ -1,0 +1,12 @@
+Hello {{ first_name|default:full_name|default:email }},
+
+You started enrollment for "{{ course_title }}".
+Payment is required to complete your enrollment. Once payment is confirmed,
+your course will unlock automatically.
+
+{% if support_email %}Questions or payment issues? Contact {{ support_email }}.{% endif %}
+
+Thanks,
+{{ project_name }}
+
+

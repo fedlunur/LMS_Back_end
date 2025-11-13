@@ -1,0 +1,12 @@
+Hello {{ first_name|default:full_name|default:email }},
+
+We could not process your payment for "{{ course_title }}".
+{% if reason %}Reason: {{ reason }}
+{% endif %}Your enrollment remains pending. Please try again.
+
+{% if support_email %}For help, contact {{ support_email }}.{% endif %}
+
+Thanks,
+{{ project_name }}
+
+

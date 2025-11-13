@@ -1,0 +1,11 @@
+Hello {{ first_name|default:full_name|default:email }},
+
+Payment received for "{{ course_title }}".
+Your course is now unlocked and ready to start.
+
+{% if support_email %}Questions? Contact {{ support_email }}.{% endif %}
+
+Thanks,
+{{ project_name }}
+
+

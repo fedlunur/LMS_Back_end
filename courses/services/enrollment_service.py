@@ -20,6 +20,13 @@ def enroll_user_in_course(user, course):
         )
         if not created:
             return False, "Enrollment already exists."
+        # Send enrollment pending email flavor
+        try:
+            from .email_service import send_enrollment_email
+            send_enrollment_email(enrollment, is_paid_pending=True)
+        except Exception:
+            # Non-blocking email
+            pass
         return False, "Payment required for this course. Enrollment created with pending payment status."
     
     # Free course: enroll immediately
@@ -36,6 +43,12 @@ def enroll_user_in_course(user, course):
     enrollment.calculate_progress()
     # Unlock first module
     enrollment.unlock_first_module()
+    # Send enrollment confirmed email flavor
+    try:
+        from .email_service import send_enrollment_email
+        send_enrollment_email(enrollment, is_paid_pending=False)
+    except Exception:
+        pass
     return True, "Successfully enrolled in the course."
 
 
@@ -55,6 +68,31 @@ def complete_payment(enrollment_id):
         # Unlock first module on activation
         enrollment.unlock_first_module()
         enrollment.calculate_progress()
+        # Notify payment completion
+        try:
+            from .email_service import send_payment_completed_email
+            send_payment_completed_email(enrollment)
+        except Exception:
+            pass
         return True, "Payment completed successfully. Enrollment is now active."
+    except Enrollment.DoesNotExist:
+        return False, "Enrollment not found."
+
+
+def fail_payment(enrollment_id, reason: str | None = None):
+    """
+    Mark payment as failed for an enrollment and notify the user.
+    """
+    try:
+        enrollment = Enrollment.objects.get(id=enrollment_id)
+        enrollment.payment_status = 'failed'
+        enrollment.is_enrolled = False
+        enrollment.save(update_fields=['payment_status', 'is_enrolled'])
+        try:
+            from .email_service import send_payment_failed_email
+            send_payment_failed_email(enrollment, reason=reason)
+        except Exception:
+            pass
+        return True, "Payment marked as failed."
     except Enrollment.DoesNotExist:
         return False, "Enrollment not found."
