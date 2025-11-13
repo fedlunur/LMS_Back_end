@@ -169,6 +169,38 @@ class EmailVerificationToken(models.Model):
         return f"{self.user.email} - {self.code} ({status})"
 
 
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    code = models.CharField(max_length=6)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "code"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def mark_used(self, commit: bool = True):
+        self.is_used = True
+        if commit:
+            self.save(update_fields=["is_used"])
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        status = "used" if self.is_used else "pending"
+        return f"{self.user.email} - reset {self.code} ({status})"
+
+
 class UserRole(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     role = models.ForeignKey(Role, on_delete=models.CASCADE)

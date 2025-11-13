@@ -13,9 +13,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db import IntegrityError
 
-from .models import EmailVerificationToken, User
+from .models import EmailVerificationToken, PasswordResetToken, User
 from .serializers import *
 from .services.email_verification import send_email_verification
+from .services.password_reset import send_password_reset_email
+from django.contrib.auth.password_validation import validate_password
 
 logger = logging.getLogger(__name__)
 class TokenCheckView(APIView):
@@ -285,6 +287,117 @@ class VerifyEmailOTP(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+class ResendEmailOTP(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response({"success": False, "message": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response(
+                {"success": False, "message": "No account found with this email address."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if user.is_email_verified:
+            return Response({"success": True, "message": "Email already verified."}, status=status.HTTP_200_OK)
+
+        try:
+            token = send_email_verification(user)
+        except Exception:
+            logger.exception("Failed to resend verification email to %s", user.email)
+            return Response(
+                {"success": False, "message": "Failed to send verification email. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        payload = {"success": True, "message": "Verification code resent to your email."}
+
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ForgotPasswordRequest(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response({"success": False, "message": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Do not reveal account existence
+            return Response({"success": True, "message": "If an account exists, an OTP has been sent."}, status=status.HTTP_200_OK)
+
+        try:
+            send_password_reset_email(user)
+        except Exception:
+            logger.exception("Failed to send password reset email to %s", user.email)
+            # Still return generic success to avoid user enumeration
+            return Response({"success": True, "message": "If an account exists, an OTP has been sent."}, status=status.HTTP_200_OK)
+
+        return Response({"success": True, "message": "If an account exists, an OTP has been sent."}, status=status.HTTP_200_OK)
+
+
+class ForgotPasswordReset(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        email = request.data.get("email", "").strip().lower()
+        code = request.data.get("code", "").strip()
+        new_password = request.data.get("new_password", "")
+        new_password2 = request.data.get("confirm_password") or request.data.get("new_password2") or ""
+
+        if not email or not code or not new_password or not new_password2:
+            return Response(
+                {"success": False, "message": "Email, code and both password fields are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if new_password != new_password2:
+            return Response({"success": False, "message": "Passwords do not match."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_password(new_password)
+        except Exception as e:
+            return Response(
+                {"success": False, "message": "Password does not meet requirements.", "errors": getattr(e, "messages", [str(e)])},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Avoid account enumeration
+            return Response({"success": False, "message": "Invalid code or email."}, status=status.HTTP_400_BAD_REQUEST)
+
+        token = (
+            PasswordResetToken.objects.filter(user=user, code=code, is_used=False)
+            .order_by("-created_at").first()
+        )
+
+        if not token:
+            return Response({"success": False, "message": "Invalid code or email."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if token.is_expired:
+            token.mark_used()
+            return Response({"success": False, "message": "Code has expired. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use token and reset password
+        token.mark_used()
+        user.set_password(new_password)
+        user.save()
+
+        return Response({"success": True, "message": "Password has been reset. You can now log in."}, status=status.HTTP_200_OK)
 
 class UserLogin(APIView):
     permission_classes = [AllowAny]

@@ -9,7 +9,7 @@ class CustomUserAdmin(UserAdmin):
     fieldsets = (
         # (None, {'fields': ('username', 'password')}),
         ('Personal info', {'fields': ('first_name', 'middle_name', 'last_name',  'phone', 'photo', 'title', 'email', 'bio')}),  # Ensure field names match the model fields
-        ('Permissions', {'fields': ('role','is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),  # Use exact model field names
+        ('Permissions', {'fields': ('role','is_active', 'is_staff', 'is_email_verified', 'is_superuser', 'groups', 'user_permissions')}),  # Use exact model field names
         ('Important dates', {'fields': ('last_login', 'date_joined')}),
         ('Status', {'fields': ('enabled', 'status')}),  # Use 'enabled' and 'status' as per the model fields
         ('Other info', {'fields': ('created', 'isLoggedIn')}),  # Match 'created' and 'isLoggedIn' field names from model
