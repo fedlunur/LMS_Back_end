@@ -20,10 +20,29 @@ class ChatRoom(models.Model):
 class ChatMessage(models.Model):
     room = models.ForeignKey(ChatRoom, related_name='messages', on_delete=models.CASCADE)
     sender = models.ForeignKey(User, on_delete=models.CASCADE)
-    content = models.TextField()
+    content = models.TextField(blank=True)  # Allow empty for file-only messages
     timestamp = models.DateTimeField(auto_now_add=True)
 
     # NEW FIELDS 
     is_read = models.BooleanField(default=False)
     read_at = models.DateTimeField(null=True, blank=True)
+    
+    # File upload support
+    file = models.FileField(upload_to='chat_files/%Y/%m/%d/', null=True, blank=True)
+    file_name = models.CharField(max_length=255, null=True, blank=True)
+    file_size = models.IntegerField(null=True, blank=True)  # Size in bytes
+    file_type = models.CharField(max_length=100, null=True, blank=True)  # MIME type
+    
+    # Reply to message support (like Telegram)
+    reply_to = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='replies',
+        help_text='The message this is replying to'
+    )
+    
+    class Meta:
+        ordering = ['timestamp']
       

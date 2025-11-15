@@ -6,6 +6,8 @@ from rest_framework.views import APIView
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.utils import timezone
+import os
 
 from .serializers import ChatbotRequestSerializer, CreateRoomSerializer
 from .services import ChatbotService
@@ -170,7 +172,38 @@ class ListUserRoomsAPIView(APIView):
             
             # Get other participant info
             other_user = r.buyer if r.seller == user else r.seller
-            last_message = r.messages.order_by('-timestamp').first()
+            last_message = r.messages.select_related('sender', 'reply_to', 'reply_to__sender').order_by('-timestamp').first()
+            
+            # Calculate unread count properly using is_read field
+            unread_count = ChatMessage.objects.filter(
+                room=r,
+                sender=other_user,
+                is_read=False
+            ).count()
+            
+            # Get file info for last message if exists
+            last_message_file_info = None
+            if last_message and last_message.file:
+                last_message_file_info = {
+                    "file_url": last_message.file.url,
+                    "file_name": last_message.file_name,
+                    "file_size": last_message.file_size,
+                    "file_type": last_message.file_type,
+                }
+            
+            # Get reply info for last message if exists
+            last_message_reply_to = None
+            if last_message and last_message.reply_to:
+                last_message_reply_to = {
+                    "message_id": last_message.reply_to.id,
+                    "sender_id": last_message.reply_to.sender_id,
+                    "sender_name": last_message.reply_to.sender.get_full_name() or last_message.reply_to.sender.first_name,
+                    "content": last_message.reply_to.content[:100] if last_message.reply_to.content else None,
+                    "file_info": {
+                        "file_name": last_message.reply_to.file_name,
+                        "file_type": last_message.reply_to.file_type,
+                    } if last_message.reply_to.file else None,
+                }
             
             out.append({
                 "room_number": str(r.room_number),
@@ -186,11 +219,11 @@ class ListUserRoomsAPIView(APIView):
                     "content": last_message.content if last_message else None,
                     "sender_id": last_message.sender_id if last_message else None,
                     "timestamp": last_message.timestamp.isoformat() if last_message else None,
+                    "file_info": last_message_file_info,
+                    "is_read": last_message.is_read if last_message else None,
+                    "reply_to": last_message_reply_to,
                 } if last_message else None,
-                "unread_count": r.messages.filter(
-                    sender__id=other_user.id,
-                    timestamp__gt=user.last_login if hasattr(user, 'last_login') and user.last_login else r.created
-                ).count() if hasattr(user, 'last_login') else 0,
+                "unread_count": unread_count,
                 **course_info,
             })
         return Response(out, status=status.HTTP_200_OK)
@@ -212,21 +245,66 @@ class ListRoomMessagesAPIView(APIView):
         if request.user.id not in (room.seller_id, room.buyer_id):
             return Response({"detail": "Not authorized for this room."}, status=status.HTTP_403_FORBIDDEN)
 
-        qs = ChatMessage.objects.filter(room=room).select_related("sender").order_by("-timestamp")
+        qs = ChatMessage.objects.filter(room=room).select_related("sender", "reply_to", "reply_to__sender").order_by("-timestamp")
         total = qs.count()
         items = list(qs[offset: offset + limit])[::-1]  # return in ascending order
-        messages = [
-            {
+        
+        # Get unread count for this room
+        other_user = room.buyer if room.seller_id == request.user.id else room.seller
+        unread_count = ChatMessage.objects.filter(
+            room=room,
+            sender=other_user,
+            is_read=False
+        ).count()
+        
+        messages = []
+        for m in items:
+            # Get file info if exists
+            file_info = None
+            if m.file:
+                file_info = {
+                    "file_url": m.file.url,
+                    "file_name": m.file_name,
+                    "file_size": m.file_size,
+                    "file_type": m.file_type,
+                }
+            
+            # Get reply information if exists
+            reply_to_info = None
+            if m.reply_to:
+                reply_to_info = {
+                    "message_id": m.reply_to.id,
+                    "sender_id": m.reply_to.sender_id,
+                    "sender_name": m.reply_to.sender.get_full_name() or m.reply_to.sender.first_name,
+                    "content": m.reply_to.content[:100] if m.reply_to.content else None,  # Preview
+                    "file_info": {
+                        "file_name": m.reply_to.file_name,
+                        "file_type": m.reply_to.file_type,
+                    } if m.reply_to.file else None,
+                }
+            
+            # Determine if message is read for current user
+            # If current user is sender, it's always "read"
+            is_read_for_user = True if m.sender_id == request.user.id else m.is_read
+            
+            messages.append({
                 "sender_id": m.sender_id,
                 "sender_name": m.sender.get_full_name() or m.sender.first_name,
                 "content": m.content,
                 "timestamp": m.timestamp.isoformat(),
                 "timestamp_display": self._time_ago(m.timestamp),
                 "message_id": m.id,
-            }
-            for m in items
-        ]
-        return Response({"total": total, "messages": messages}, status=status.HTTP_200_OK)
+                "file_info": file_info,
+                "is_read": is_read_for_user,
+                "read_at": m.read_at.isoformat() if m.read_at else None,
+                "reply_to": reply_to_info,
+            })
+        
+        return Response({
+            "total": total, 
+            "messages": messages,
+            "unread_count": unread_count,
+        }, status=status.HTTP_200_OK)
     
     @staticmethod
     def _time_ago(timestamp):
@@ -248,3 +326,135 @@ class ListRoomMessagesAPIView(APIView):
             return f"{int(diff.total_seconds() // 3600)} hours ago"
         else:
             return timestamp.strftime("%b %d, %Y")  # Example: "Nov 15, 2025"
+
+
+class UploadChatFileAPIView(APIView):
+    """
+    Upload a file for chat message.
+    Returns message_id that can be used to send the file via WebSocket.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, room_number: str):
+        room = get_object_or_404(ChatRoom, room_number=room_number)
+        
+        # Only participants can upload files
+        if request.user.id not in (room.seller_id, room.buyer_id):
+            return Response({"detail": "Not authorized for this room."}, status=status.HTTP_403_FORBIDDEN)
+        
+        if 'file' not in request.FILES:
+            return Response({"detail": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        uploaded_file = request.FILES['file']
+        content = request.data.get('content', '')  # Optional caption/text
+        reply_to_id = request.data.get('reply_to_id')  # Optional reply to message ID
+        
+        # Get file info
+        file_name = uploaded_file.name
+        file_size = uploaded_file.size
+        file_type = uploaded_file.content_type or 'application/octet-stream'
+        
+        # Get reply_to message if provided
+        reply_to_msg = None
+        reply_to_info = None
+        if reply_to_id:
+            try:
+                reply_to_msg = ChatMessage.objects.select_related('sender').get(
+                    id=reply_to_id,
+                    room=room
+                )
+                reply_to_info = {
+                    "message_id": reply_to_msg.id,
+                    "sender_id": reply_to_msg.sender_id,
+                    "sender_name": reply_to_msg.sender.get_full_name() or reply_to_msg.sender.first_name,
+                    "content": reply_to_msg.content[:100] if reply_to_msg.content else None,
+                    "file_info": {
+                        "file_name": reply_to_msg.file_name,
+                        "file_type": reply_to_msg.file_type,
+                    } if reply_to_msg.file else None,
+                }
+            except ChatMessage.DoesNotExist:
+                return Response({"detail": "Reply to message not found."}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Create message with file
+        message = ChatMessage.objects.create(
+            room=room,
+            sender=request.user,
+            content=content,
+            file=uploaded_file,
+            file_name=file_name,
+            file_size=file_size,
+            file_type=file_type,
+            reply_to=reply_to_msg,
+        )
+        
+        return Response({
+            "message_id": message.id,
+            "file_url": message.file.url,
+            "file_name": message.file_name,
+            "file_size": message.file_size,
+            "file_type": message.file_type,
+            "content": message.content,
+            "timestamp": message.timestamp.isoformat(),
+            "reply_to": reply_to_info,
+        }, status=status.HTTP_201_CREATED)
+
+
+class MarkMessagesAsReadAPIView(APIView):
+    """
+    Mark messages as read.
+    POST body: {"message_ids": [1, 2, 3]}
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, room_number: str):
+        room = get_object_or_404(ChatRoom, room_number=room_number)
+        
+        # Only participants can mark messages as read
+        if request.user.id not in (room.seller_id, room.buyer_id):
+            return Response({"detail": "Not authorized for this room."}, status=status.HTTP_403_FORBIDDEN)
+        
+        message_ids = request.data.get('message_ids', [])
+        if not message_ids:
+            return Response({"detail": "message_ids is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Only mark messages that belong to this room and are not sent by current user
+        messages = ChatMessage.objects.filter(
+            id__in=message_ids,
+            room=room,
+        ).exclude(sender=request.user)
+        
+        now = timezone.now()
+        updated_count = messages.update(is_read=True, read_at=now)
+        
+        return Response({
+            "updated_count": updated_count,
+            "message_ids": list(messages.values_list('id', flat=True)),
+        }, status=status.HTTP_200_OK)
+
+
+class GetUnreadCountAPIView(APIView):
+    """
+    Get unread message count for a room.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, room_number: str):
+        room = get_object_or_404(ChatRoom, room_number=room_number)
+        
+        # Only participants can view unread count
+        if request.user.id not in (room.seller_id, room.buyer_id):
+            return Response({"detail": "Not authorized for this room."}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Count unread messages sent by the other user
+        other_user = room.buyer if room.seller_id == request.user.id else room.seller
+        unread_count = ChatMessage.objects.filter(
+            room=room,
+            sender=other_user,
+            is_read=False
+        ).count()
+        
+        return Response({
+            "unread_count": unread_count,
+            "room_number": str(room.room_number),
+        }, status=status.HTTP_200_OK)

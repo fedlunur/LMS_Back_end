@@ -98,15 +98,36 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             # Parse the JSON data
             text_data_json = json.loads(text_data)
+            
+            # Check if this is a read receipt or a regular message
+            message_type = text_data_json.get('type', 'message')
+            
+            if message_type == 'mark_read':
+                # Handle marking messages as read
+                message_ids = text_data_json.get('message_ids', [])
+                if message_ids:
+                    await self.mark_messages_as_read(message_ids)
+                    # Send read receipt to other users
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            'type': 'read_receipt',
+                            'message_ids': message_ids,
+                            'read_by': self.user.id,
+                        }
+                    )
+                return
 
             # Extract fields from the JSON payload
             message = text_data_json.get('message', '').strip()
             sender_id = text_data_json.get('sender_id')
+            file_id = text_data_json.get('file_id')  # For file messages uploaded via API
+            reply_to_id = text_data_json.get('reply_to_id')  # ID of message being replied to
 
-            # Validate required fields
-            if not message:
+            # Validate required fields - either message or file_id must be present
+            if not message and not file_id:
                 await self.send(text_data=json.dumps({
-                    'error': 'Message cannot be empty'
+                    'error': 'Message or file_id is required'
                 }))
                 return
 
@@ -141,8 +162,62 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }))
                 return
 
-            # Save the message
-            saved_message = await self.save_message(sender_id=sender_id_int, message=message)
+            # Validate reply_to_id if provided
+            reply_to_info = None
+            if reply_to_id:
+                try:
+                    reply_to_id_int = int(reply_to_id)
+                    reply_to_info = await self.validate_and_get_reply_to(reply_to_id_int)
+                    if not reply_to_info:
+                        await self.send(text_data=json.dumps({
+                            'error': 'Reply to message not found or not in this room'
+                        }))
+                        return
+                except (ValueError, TypeError):
+                    await self.send(text_data=json.dumps({
+                        'error': 'Invalid reply_to_id format'
+                    }))
+                    return
+
+            # If file_id is provided, get the existing message (file was already uploaded via API)
+            if file_id:
+                existing_message = await self.get_message_by_id(file_id, sender_id_int)
+                if existing_message:
+                    # Update the existing message with reply_to if provided
+                    if reply_to_id:
+                        await self.update_message_reply_to(file_id, reply_to_id_int)
+                    
+                    # Broadcast the existing message
+                    sender_name = await self.get_sender_name_from_id(sender_id_int)
+                    file_info = await self.get_file_info_from_message(existing_message)
+                    
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            'type': 'chat_message',
+                            'message': existing_message.get('content', ''),
+                            'sender_id': sender_id_int,
+                            'sender_name': sender_name,
+                            'timestamp': existing_message.get('timestamp'),
+                            'message_id': existing_message.get('id'),
+                            'file_info': file_info,
+                            'is_read': False,  # New messages are unread
+                            'reply_to': reply_to_info,
+                        }  
+                    )
+                    return
+                else:
+                    await self.send(text_data=json.dumps({
+                        'error': 'File message not found'
+                    }))
+                    return
+
+            # Save the text message (no file_id)
+            saved_message = await self.save_message(
+                sender_id=sender_id_int, 
+                message=message,
+                reply_to_id=reply_to_id_int if reply_to_id else None,
+            )
             timestamp = datetime.now(timezone.utc)
             
             # Get sender info
@@ -158,6 +233,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     'sender_name': sender_name,
                     'timestamp': timestamp.isoformat(),
                     'message_id': saved_message.get('id') if saved_message else None,
+                    'file_info': saved_message.get('file_info'),
+                    'is_read': False,  # New messages are unread
+                    'reply_to': reply_to_info,
                 }  
             )
         except json.JSONDecodeError as e:
@@ -178,6 +256,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         sender_name = event.get('sender_name', '')
         timestamp_str = event.get('timestamp')
         message_id = event.get('message_id')
+        file_info = event.get('file_info')
+        is_read = event.get('is_read', False)
+        reply_to = event.get('reply_to')
         
         # Parse timestamp if it's a string
         if isinstance(timestamp_str, str):
@@ -188,6 +269,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         else:
             timestamp = timestamp_str or datetime.now(timezone.utc)
         
+        # Determine if this message should be marked as read for the current user
+        # If the current user is the sender, it's already "read" for them
+        # If the current user is the receiver, it's unread until they view it
+        current_user_is_sender = sender_id == self.user.id
+        
         # Send message to WebSocket
         await self.send(text_data=json.dumps({
             'type': 'message',
@@ -197,7 +283,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'timestamp': timestamp.isoformat(),
             'timestamp_display': time_ago(timestamp),
             'message_id': message_id,
+            'file_info': file_info,
+            'is_read': is_read if not current_user_is_sender else True,  # Sender's own messages are always "read"
+            'reply_to': reply_to,
         }))
+    
+    async def read_receipt(self, event):
+        """Handle read receipts - notify users when messages are read."""
+        message_ids = event.get('message_ids', [])
+        read_by = event.get('read_by')
+        
+        # Only send to other users (not the one who read it)
+        if read_by != self.user.id:
+            await self.send(text_data=json.dumps({
+                'type': 'read_receipt',
+                'message_ids': message_ids,
+                'read_by': read_by,
+            }))
         
         
 
@@ -212,6 +314,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
             room_name = await self.get_room_name(msg)
             buyer=await self.get_buyer_name(msg)
             sender_name=await self.get_sender_name(msg)
+            
+            # Get file info if exists
+            file_info = None
+            if msg.file:
+                file_info = await self.get_file_info(msg)
+            
+            # Get reply information if exists
+            reply_to_info = None
+            if msg.reply_to:
+                reply_to_info = await self.get_reply_to_info(msg.reply_to)
+            
+            # Determine if message is read for current user
+            # If current user is sender, it's always "read"
+            # Otherwise, check is_read field
+            is_read_for_user = True if msg.sender_id == self.user.id else msg.is_read
+            
             chat_history.append({
                 "sender_id": msg.sender_id,
                 "sender_name": sender_name,
@@ -219,12 +337,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "timestamp": msg.timestamp.isoformat(),
                 "timestamp_display": time_ago(msg.timestamp),
                 "message_id": msg.id,
+                "file_info": file_info,
+                "is_read": is_read_for_user,
+                "read_at": msg.read_at.isoformat() if msg.read_at else None,
+                "reply_to": reply_to_info,
             })
+        
+        # Get unread count for this room
+        unread_count = await self.get_unread_count()
 
         # Send chat history to WebSocket
         await self.send(text_data=json.dumps({
             "type": "chat_history",
-            "messages": chat_history
+            "messages": chat_history,
+            "unread_count": unread_count,
         }))
 
     @database_sync_to_async
@@ -251,7 +377,92 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return "Unknown User"
     #
     @database_sync_to_async
-    def save_message(self, sender_id, message):
+    def get_message_by_id(self, message_id, sender_id):
+        """Get an existing message by ID."""
+        ChatMessage = apps.get_model('chat', 'ChatMessage')
+        ChatRoom = apps.get_model('chat', 'ChatRoom')
+        
+        try:
+            room = ChatRoom.objects.get(room_number=self.room_number)
+            msg = ChatMessage.objects.get(id=message_id, sender_id=sender_id, room=room)
+            return {
+                'id': msg.id,
+                'content': msg.content,
+                'timestamp': msg.timestamp.isoformat(),
+                'file': msg.file,
+                'file_name': msg.file_name,
+                'file_size': msg.file_size,
+                'file_type': msg.file_type,
+            }
+        except ChatMessage.DoesNotExist:
+            return None
+    
+    @database_sync_to_async
+    def get_file_info_from_message(self, message_data):
+        """Get file info from message data."""
+        file_obj = message_data.get('file')
+        if not file_obj:
+            return None
+        return {
+            'file_url': file_obj.url if file_obj else None,
+            'file_name': message_data.get('file_name'),
+            'file_size': message_data.get('file_size'),
+            'file_type': message_data.get('file_type'),
+        }
+    
+    @database_sync_to_async
+    def validate_and_get_reply_to(self, reply_to_id):
+        """Validate that reply_to message exists and is in the same room, return reply info."""
+        ChatMessage = apps.get_model('chat', 'ChatMessage')
+        ChatRoom = apps.get_model('chat', 'ChatRoom')
+        
+        try:
+            room = ChatRoom.objects.get(room_number=self.room_number)
+            reply_msg = ChatMessage.objects.select_related('sender').get(
+                id=reply_to_id,
+                room=room
+            )
+            return {
+                'message_id': reply_msg.id,
+                'sender_id': reply_msg.sender_id,
+                'sender_name': reply_msg.sender.get_full_name() or reply_msg.sender.first_name,
+                'content': reply_msg.content[:100] if reply_msg.content else None,  # Preview of original message
+                'file_info': {
+                    'file_name': reply_msg.file_name,
+                    'file_type': reply_msg.file_type,
+                } if reply_msg.file else None,
+            }
+        except ChatMessage.DoesNotExist:
+            return None
+    
+    @database_sync_to_async
+    def get_reply_to_info(self, reply_msg):
+        """Get reply information from a reply message object."""
+        return {
+            'message_id': reply_msg.id,
+            'sender_id': reply_msg.sender_id,
+            'sender_name': reply_msg.sender.get_full_name() or reply_msg.sender.first_name,
+            'content': reply_msg.content[:100] if reply_msg.content else None,  # Preview of original message
+            'file_info': {
+                'file_name': reply_msg.file_name,
+                'file_type': reply_msg.file_type,
+            } if reply_msg.file else None,
+        }
+    
+    @database_sync_to_async
+    def update_message_reply_to(self, message_id, reply_to_id):
+        """Update an existing message with reply_to reference."""
+        ChatMessage = apps.get_model('chat', 'ChatMessage')
+        try:
+            msg = ChatMessage.objects.get(id=message_id)
+            reply_msg = ChatMessage.objects.get(id=reply_to_id, room=msg.room)
+            msg.reply_to = reply_msg
+            msg.save()
+        except ChatMessage.DoesNotExist:
+            pass
+    
+    @database_sync_to_async
+    def save_message(self, sender_id, message, reply_to_id=None):
         """Save a new chat message to the database."""
         ChatMessage = apps.get_model('chat', 'ChatMessage')
         ChatRoom = apps.get_model('chat', 'ChatRoom')
@@ -259,17 +470,79 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # Fetch the room
         room = ChatRoom.objects.get(room_number=self.room_number)
 
+        # Get reply_to message if provided
+        reply_to_msg = None
+        if reply_to_id:
+            try:
+                reply_to_msg = ChatMessage.objects.get(id=reply_to_id, room=room)
+            except ChatMessage.DoesNotExist:
+                pass
+
         # Create the chat message
         msg = ChatMessage.objects.create(
             room=room,
             sender_id=sender_id,
             content=message,
+            reply_to=reply_to_msg,
         )
+        
         return {
             'id': msg.id,
             'content': msg.content,
             'timestamp': msg.timestamp.isoformat(),
+            'file_info': None,
         }
+    
+    @database_sync_to_async
+    def get_file_info(self, msg):
+        """Get file information from message."""
+        if not msg.file:
+            return None
+        return {
+            'file_url': msg.file.url,
+            'file_name': msg.file_name,
+            'file_size': msg.file_size,
+            'file_type': msg.file_type,
+        }
+    
+    @database_sync_to_async
+    def get_other_user(self):
+        """Get the other user in the room."""
+        if self.room.seller_id == self.user.id:
+            return self.room.buyer
+        return self.room.seller
+    
+    @database_sync_to_async
+    def mark_messages_as_read(self, message_ids):
+        """Mark messages as read."""
+        ChatMessage = apps.get_model('chat', 'ChatMessage')
+        from django.utils import timezone as tz
+        
+        # Only mark messages that belong to this room and are not sent by current user
+        messages = ChatMessage.objects.filter(
+            id__in=message_ids,
+            room__room_number=self.room_number,
+        ).exclude(sender=self.user)
+        
+        now = tz.now()
+        messages.update(is_read=True, read_at=now)
+    
+    @database_sync_to_async
+    def get_unread_count(self):
+        """Get unread message count for current user in this room."""
+        ChatMessage = apps.get_model('chat', 'ChatMessage')
+        ChatRoom = apps.get_model('chat', 'ChatRoom')
+        try:
+            room = ChatRoom.objects.get(room_number=self.room_number)
+            # Count unread messages sent by the other user
+            other_user = room.buyer if room.seller_id == self.user.id else room.seller
+            return ChatMessage.objects.filter(
+                room=room,
+                sender=other_user,
+                is_read=False
+            ).count()
+        except ChatRoom.DoesNotExist:
+            return 0
 
     @database_sync_to_async
     def get_last_messages(self, room_number, limit=20):
@@ -278,8 +551,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         ChatRoom = apps.get_model('chat', 'ChatRoom')
 
         room = ChatRoom.objects.get(room_number=room_number)
-        # Pre-fetch related `room` field to avoid additional queries
-        return ChatMessage.objects.filter(room=room).select_related('room').order_by('-timestamp')[:limit][::-1]
+        # Pre-fetch related fields to avoid additional queries
+        return ChatMessage.objects.filter(room=room).select_related(
+            'room', 'sender', 'reply_to', 'reply_to__sender'
+        ).order_by('-timestamp')[:limit][::-1]
     
     
 from datetime import datetime, timezone

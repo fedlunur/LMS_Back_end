@@ -48,7 +48,15 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-from chat.views import ChatbotAPIView, CreateChatRoomAPIView, ListUserRoomsAPIView, ListRoomMessagesAPIView
+from chat.views import (
+    ChatbotAPIView, 
+    CreateChatRoomAPIView, 
+    ListUserRoomsAPIView, 
+    ListRoomMessagesAPIView,
+    UploadChatFileAPIView,
+    MarkMessagesAsReadAPIView,
+    GetUnreadCountAPIView
+)
 from rest_framework.routers import DefaultRouter
 router = DefaultRouter()
 """ structure Routes """
@@ -189,6 +197,9 @@ urlpatterns = [
     re_path(r'^api/chat/room/create/?$', CreateChatRoomAPIView.as_view(), name='chat_create_room'),
     re_path(r'^api/chat/rooms/?$', ListUserRoomsAPIView.as_view(), name='chat_list_rooms'),
     re_path(r'^api/chat/messages/(?P<room_number>[^/]+)/?$', ListRoomMessagesAPIView.as_view(), name='chat_list_messages'),
+    re_path(r'^api/chat/upload/(?P<room_number>[^/]+)/?$', UploadChatFileAPIView.as_view(), name='chat_upload_file'),
+    re_path(r'^api/chat/mark-read/(?P<room_number>[^/]+)/?$', MarkMessagesAsReadAPIView.as_view(), name='chat_mark_read'),
+    re_path(r'^api/chat/unread-count/(?P<room_number>[^/]+)/?$', GetUnreadCountAPIView.as_view(), name='chat_unread_count'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
