@@ -103,14 +103,18 @@ class CreateChatRoomAPIView(APIView):
             objectid=course.id,
             seller=seller,
             buyer=buyer,
-        ).first()
+        ).select_related('seller', 'buyer').first()
         if existing:
             return Response(
                 {
                     "room_number": str(existing.room_number),
                     "course_id": course.id,
+                    "course_title": course.title,
                     "teacher_id": seller.id,
+                    "teacher_name": seller.get_full_name() or seller.first_name,
                     "student_id": buyer.id,
+                    "student_name": buyer.get_full_name() or buyer.first_name,
+                    "created": existing.created.isoformat(),
                 },
                 status=status.HTTP_200_OK,
             )
@@ -126,8 +130,12 @@ class CreateChatRoomAPIView(APIView):
             {
                 "room_number": str(room.room_number),
                 "course_id": course.id,
+                "course_title": course.title,
                 "teacher_id": seller.id,
+                "teacher_name": seller.get_full_name() or seller.first_name,
                 "student_id": buyer.id,
+                "student_name": buyer.get_full_name() or buyer.first_name,
+                "created": room.created.isoformat(),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -141,18 +149,50 @@ class ListUserRoomsAPIView(APIView):
 
     def get(self, request):
         user: User = request.user
-        rooms = ChatRoom.objects.filter(Q(seller=user) | Q(buyer=user)).order_by("-created")
+        rooms = ChatRoom.objects.filter(
+            Q(seller=user) | Q(buyer=user)
+        ).select_related('seller', 'buyer', 'contenttype').order_by("-created")
+        
         out = []
         for r in rooms:
-            out.append(
-                {
-                    "room_number": str(r.room_number),
-                    "created": r.created.isoformat(),
-                    "course_id": int(r.product_id) if str(r.product_id).isdigit() else r.product_id,
-                    "teacher_id": r.seller_id,
-                    "student_id": r.buyer_id,
-                }
-            )
+            # Get course info if available
+            course_info = {}
+            if r.contenttype and r.objectid:
+                try:
+                    course = r.item
+                    if course:
+                        course_info = {
+                            "course_id": course.id,
+                            "course_title": course.title,
+                        }
+                except:
+                    pass
+            
+            # Get other participant info
+            other_user = r.buyer if r.seller == user else r.seller
+            last_message = r.messages.order_by('-timestamp').first()
+            
+            out.append({
+                "room_number": str(r.room_number),
+                "created": r.created.isoformat(),
+                "course_id": int(r.product_id) if str(r.product_id).isdigit() else None,
+                "teacher_id": r.seller_id,
+                "teacher_name": r.seller.get_full_name() or r.seller.first_name,
+                "student_id": r.buyer_id,
+                "student_name": r.buyer.get_full_name() or r.buyer.first_name,
+                "other_user_id": other_user.id,
+                "other_user_name": other_user.get_full_name() or other_user.first_name,
+                "last_message": {
+                    "content": last_message.content if last_message else None,
+                    "sender_id": last_message.sender_id if last_message else None,
+                    "timestamp": last_message.timestamp.isoformat() if last_message else None,
+                } if last_message else None,
+                "unread_count": r.messages.filter(
+                    sender__id=other_user.id,
+                    timestamp__gt=user.last_login if hasattr(user, 'last_login') and user.last_login else r.created
+                ).count() if hasattr(user, 'last_login') else 0,
+                **course_info,
+            })
         return Response(out, status=status.HTTP_200_OK)
 
 
@@ -178,10 +218,33 @@ class ListRoomMessagesAPIView(APIView):
         messages = [
             {
                 "sender_id": m.sender_id,
-                "sender_name": m.sender.get_full_name(),
+                "sender_name": m.sender.get_full_name() or m.sender.first_name,
                 "content": m.content,
                 "timestamp": m.timestamp.isoformat(),
+                "timestamp_display": self._time_ago(m.timestamp),
+                "message_id": m.id,
             }
             for m in items
         ]
         return Response({"total": total, "messages": messages}, status=status.HTTP_200_OK)
+    
+    @staticmethod
+    def _time_ago(timestamp):
+        """Format timestamp as relative time."""
+        from datetime import datetime, timezone
+        
+        if isinstance(timestamp, str):
+            # Convert string timestamp to datetime object
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+        now = datetime.now(timezone.utc)
+        diff = now - timestamp
+
+        if diff.total_seconds() < 60:
+            return "Just now"
+        elif diff.total_seconds() < 3600:
+            return f"{int(diff.total_seconds() // 60)} minutes ago"
+        elif diff.total_seconds() < 86400:
+            return f"{int(diff.total_seconds() // 3600)} hours ago"
+        else:
+            return timestamp.strftime("%b %d, %Y")  # Example: "Nov 15, 2025"

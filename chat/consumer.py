@@ -34,8 +34,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
-        # Fetch user directly (no JWT decoding)
-        self.user = await self.get_user_from_id(user_id)
+        # Convert to int and fetch user directly (no JWT decoding)
+        try:
+            user_id_int = int(user_id)
+        except ValueError:
+            logger.error(f"Invalid user_id format: {user_id}")
+            await self.close()
+            return
+        
+        self.user = await self.get_user_from_id(user_id_int)
 
         if not self.user:
             logger.warning(f"User {user_id} does not exist. Closing connection.")
@@ -89,9 +96,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         """Handle received messages."""
         try:
-            # Debugging: Print the raw text_data
-            print(f"📥 Raw text_data: {text_data}")
-
             # Parse the JSON data
             text_data_json = json.loads(text_data)
 
@@ -99,47 +103,100 @@ class ChatConsumer(AsyncWebsocketConsumer):
             message = text_data_json.get('message', '').strip()
             sender_id = text_data_json.get('sender_id')
 
-            # Debugging: Print extracted fields
-            print(f"📤 Extracted fields: message={message}, sender_id={sender_id}")
-
             # Validate required fields
+            if not message:
+                await self.send(text_data=json.dumps({
+                    'error': 'Message cannot be empty'
+                }))
+                return
+
             if not sender_id:
-                logger.warning("Missing required fields in received message")
-                return  # Reject message if required fields are missing
+                logger.warning("Missing sender_id in received message")
+                await self.send(text_data=json.dumps({
+                    'error': 'sender_id is required'
+                }))
+                return
+
+            # Validate sender is authorized - convert both to int for comparison
+            try:
+                sender_id_int = int(sender_id)
+            except (ValueError, TypeError):
+                await self.send(text_data=json.dumps({
+                    'error': 'Invalid sender_id format'
+                }))
+                return
+            
+            if sender_id_int != self.user.id:
+                logger.warning(
+                    f"Sender ID mismatch - sender_id: {sender_id_int} (type: {type(sender_id_int)}), "
+                    f"self.user.id: {self.user.id} (type: {type(self.user.id)}), "
+                    f"self.user: {self.user}"
+                )
+                await self.send(text_data=json.dumps({
+                    'error': 'Unauthorized sender',
+                    'debug': {
+                        'sender_id': sender_id_int,
+                        'connected_user_id': self.user.id
+                    }
+                }))
+                return
 
             # Save the message
-            await self.save_message(sender_id=sender_id, message=message)
+            saved_message = await self.save_message(sender_id=sender_id_int, message=message)
             timestamp = datetime.now(timezone.utc)
             
-          
+            # Get sender info
+            sender_name = await self.get_sender_name_from_id(sender_id_int)
+            
             # Send message to WebSocket group
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'chat_message',
                     'message': message,
-                    'sender_id': sender_id,
-                    'timestamp': time_ago(timestamp),  
-                 
+                    'sender_id': sender_id_int,
+                    'sender_name': sender_name,
+                    'timestamp': timestamp.isoformat(),
+                    'message_id': saved_message.get('id') if saved_message else None,
                 }  
             )
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON received: {e}")
+            await self.send(text_data=json.dumps({
+                'error': 'Invalid JSON format'
+            }))
         except Exception as e:
             logger.error(f"Unexpected error while processing message: {e}")
+            await self.send(text_data=json.dumps({
+                'error': 'Failed to process message'
+            }))
 
     async def chat_message(self, event):
         """Send the message to WebSocket."""
         message = event.get('message', '')
         sender_id = event.get('sender_id')
-        timestamp = datetime.now(timezone.utc)
+        sender_name = event.get('sender_name', '')
+        timestamp_str = event.get('timestamp')
+        message_id = event.get('message_id')
+        
+        # Parse timestamp if it's a string
+        if isinstance(timestamp_str, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            except:
+                timestamp = datetime.now(timezone.utc)
+        else:
+            timestamp = timestamp_str or datetime.now(timezone.utc)
+        
         # Send message to WebSocket
         await self.send(text_data=json.dumps({
+            'type': 'message',
             'message': message,
             'sender_id': sender_id,
-            'timestamp': time_ago(timestamp),  
-           
-           
+            'sender_name': sender_name,
+            'timestamp': timestamp.isoformat(),
+            'timestamp_display': time_ago(timestamp),
+            'message_id': message_id,
         }))
         
         
@@ -157,18 +214,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
             sender_name=await self.get_sender_name(msg)
             chat_history.append({
                 "sender_id": msg.sender_id,
-                "buyer": buyer.id,
-                "buyer_name":buyer.first_name,
-                "sender_name":sender_name,
-                "room": str(room_name),  # Use the fetched room name
+                "sender_name": sender_name,
                 "message": msg.content,
-                "timestamp":time_ago(msg.timestamp),
-              
+                "timestamp": msg.timestamp.isoformat(),
+                "timestamp_display": time_ago(msg.timestamp),
+                "message_id": msg.id,
             })
 
         # Send chat history to WebSocket
         await self.send(text_data=json.dumps({
-            "chat_history": chat_history
+            "type": "chat_history",
+            "messages": chat_history
         }))
 
     @database_sync_to_async
@@ -182,26 +238,38 @@ class ChatConsumer(AsyncWebsocketConsumer):
     
     @database_sync_to_async
     def get_sender_name(self, msg):
-        return msg.sender.first_name
+        return msg.sender.get_full_name() or msg.sender.first_name
+    
+    @database_sync_to_async
+    def get_sender_name_from_id(self, sender_id):
+        """Get sender name from user ID."""
+        from user_managment.models import User
+        try:
+            user = User.objects.get(id=sender_id)
+            return user.get_full_name() or user.first_name
+        except User.DoesNotExist:
+            return "Unknown User"
     #
     @database_sync_to_async
     def save_message(self, sender_id, message):
         """Save a new chat message to the database."""
-        logger.info("Saving the chat message to the database")
         ChatMessage = apps.get_model('chat', 'ChatMessage')
         ChatRoom = apps.get_model('chat', 'ChatRoom')
 
         # Fetch the room
         room = ChatRoom.objects.get(room_number=self.room_number)
-        logger.info("Ready to create chat message")
 
         # Create the chat message
-        ChatMessage.objects.create(
+        msg = ChatMessage.objects.create(
             room=room,
             sender_id=sender_id,
             content=message,
         )
-        logger.info("Chat message successfully created")
+        return {
+            'id': msg.id,
+            'content': msg.content,
+            'timestamp': msg.timestamp.isoformat(),
+        }
 
     @database_sync_to_async
     def get_last_messages(self, room_number, limit=20):
