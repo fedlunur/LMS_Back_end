@@ -88,6 +88,14 @@ class Command(BaseCommand):
                 f"Description: {course.description}" if course.description else "",
             ]
             
+            # Add price information
+            price_str = f"${float(course.price):.2f}" if course.price else "Free"
+            content_parts.append(f"Price: {price_str}")
+            
+            # Add instructor information
+            instructor_name = course.instructor.get_full_name() or course.instructor.first_name or course.instructor.username
+            content_parts.append(f"Instructor: {instructor_name}")
+            
             if course.category:
                 content_parts.append(f"Category: {course.category.name}")
             if course.level:
@@ -116,6 +124,8 @@ class Command(BaseCommand):
                 "course_id": course.id,
                 "title": course.title,
                 "instructor_id": course.instructor.id,
+                "instructor_name": instructor_name,
+                "price": str(course.price),
             })
             ids.append(f"course_{course.id}")
 

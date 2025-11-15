@@ -160,7 +160,30 @@ class ChatbotDataFetcher:
                 # Format chunk with metadata
                 if doc_type == "course":
                     course_title = metadata.get("title", "Course")
-                    chunk = f"Course: {course_title}\n{content}"
+                    # Try to get price and instructor from metadata first
+                    price = metadata.get("price")
+                    instructor_name = metadata.get("instructor_name")
+                    
+                    # If not in metadata, fetch from database
+                    if not price or not instructor_name:
+                        course_id = metadata.get("course_id")
+                        if course_id:
+                            try:
+                                course = Course.objects.select_related('instructor').get(id=course_id)
+                                price = str(course.price) if course.price else "0.00"
+                                instructor_name = course.instructor.get_full_name() or course.instructor.first_name or course.instructor.username
+                            except Course.DoesNotExist:
+                                pass
+                    
+                    # Format price
+                    try:
+                        price_float = float(price) if price else 0.0
+                        price_str = f"${price_float:.2f}" if price_float > 0 else "Free"
+                    except (ValueError, TypeError):
+                        price_str = "Free"
+                    
+                    # Build enhanced chunk with price and instructor
+                    chunk = f"Course: {course_title}\nPrice: {price_str}\nInstructor: {instructor_name or 'Not specified'}\n{content}"
                     if "courses" not in used_sources:
                         used_sources.append("courses")
                 elif doc_type == "lesson":
@@ -212,9 +235,21 @@ class ChatbotDataFetcher:
             courses = Course.objects.filter(
                 Q(title__icontains=query) | Q(description__icontains=query),
                 status="published"
-            )[:3]
+            ).select_related('instructor')[:3]
             for course in courses:
-                chunks.append(f"Course: {course.title}\n{course.description[:200]}")
+                # Format price
+                try:
+                    price_float = float(course.price) if course.price else 0.0
+                    price_str = f"${price_float:.2f}" if price_float > 0 else "Free"
+                except (ValueError, TypeError):
+                    price_str = "Free"
+                # Get instructor name
+                instructor_name = course.instructor.get_full_name() or course.instructor.first_name or course.instructor.username
+                # Build course chunk with all information
+                course_info = f"Course: {course.title}\nPrice: {price_str}\nInstructor: {instructor_name}"
+                if course.description:
+                    course_info += f"\nDescription: {course.description[:200]}"
+                chunks.append(course_info)
                 used_sources.append("courses")
 
         # Basic keyword search in FAQs

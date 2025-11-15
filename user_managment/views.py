@@ -1,8 +1,12 @@
 # Default:
 
 import logging
+import os
+from uuid import uuid4
 
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError, AccessToken
 from rest_framework.views import APIView
@@ -526,18 +530,104 @@ class UserView(APIView):
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def _handle_photo_upload(self, request, user):
+        """Handle photo file upload and return the path to store"""
+        photo_file = request.FILES.get('photo')
+        
+        if photo_file:
+            # Validate file type
+            allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+            file_ext = os.path.splitext(photo_file.name)[1].lower()
+            
+            if file_ext not in allowed_extensions:
+                raise ValidationError(
+                    f"Invalid file type. Allowed types: {', '.join(allowed_extensions)}"
+                )
+            
+            # Validate file size (max 5MB)
+            max_size = 5 * 1024 * 1024  # 5MB
+            if photo_file.size > max_size:
+                raise ValidationError("File size exceeds 5MB limit.")
+            
+            # Generate unique filename
+            filename = f"{uuid4().hex}{file_ext}"
+            upload_path = os.path.join('user_photos', filename)
+            
+            # Delete old photo if exists
+            if user.photo:
+                old_path = user.photo
+                # Handle different path formats
+                # If it's a full URL, skip deletion (external URL)
+                if old_path.startswith(('http://', 'https://')):
+                    pass  # Don't delete external URLs
+                else:
+                    # Remove /media/ prefix if present
+                    if old_path.startswith(settings.MEDIA_URL):
+                        old_path = old_path[len(settings.MEDIA_URL):].lstrip('/')
+                    # Remove leading slash if present
+                    old_path = old_path.lstrip('/')
+                    # Build full path
+                    old_full_path = os.path.join(settings.MEDIA_ROOT, old_path)
+                    if os.path.exists(old_full_path):
+                        try:
+                            os.remove(old_full_path)
+                        except Exception as e:
+                            logger.warning(f"Failed to delete old photo: {e}")
+            
+            # Save the file
+            file_path = default_storage.save(upload_path, photo_file)
+            # Return path relative to MEDIA_ROOT (will be stored in photo field)
+            return file_path
+        
+        # If photo is sent as a string (URL or path), return it
+        elif 'photo' in request.data:
+            photo_value = request.data.get('photo')
+            # If it's None or empty string, allow clearing the photo
+            if photo_value == '' or photo_value is None:
+                return None
+            # If it's a string path/URL, return as-is
+            return photo_value
+        
+        return None
+
     def patch(self, request):
-        user = request.user
-        allowed_fields = ['first_name', 'middle_name', 'last_name', 'photo', 'title', 'bio']
-        for field in allowed_fields:
-            if field in request.data:
-                setattr(user, field, request.data.get(field))
-        user.save()
-        return Response({
-            'success': True,
-            'data': UserDetailSerializer(user).data,
-            'message': 'Profile updated successfully.'
-        }, status=status.HTTP_200_OK)
+        try:
+            user = request.user
+            allowed_fields = ['first_name', 'middle_name', 'last_name', 'phone', 'title', 'bio']
+            
+            # Handle photo upload separately
+            if 'photo' in request.data or 'photo' in request.FILES:
+                photo_path = self._handle_photo_upload(request, user)
+                if photo_path is not None:
+                    user.photo = photo_path
+                elif photo_path is None and 'photo' in request.data:
+                    # Clear photo if explicitly set to None or empty
+                    user.photo = None
+            
+            # Update other allowed fields
+            for field in allowed_fields:
+                if field in request.data:
+                    setattr(user, field, request.data.get(field))
+            
+            user.save()
+            
+            return Response({
+                'success': True,
+                'data': UserDetailSerializer(user, context={'request': request}).data,
+                'message': 'Profile updated successfully.'
+            }, status=status.HTTP_200_OK)
+        
+        except ValidationError as e:
+            return Response({
+                'success': False,
+                'message': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("Error updating user profile")
+            return Response({
+                'success': False,
+                'message': 'An error occurred while updating your profile.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     # Allow full update via PUT with same allowed fields
     def put(self, request):
@@ -557,7 +647,7 @@ class TeacherDetailView(APIView):
             return Response({"success": False, "message": "User is not a teacher."}, status=status.HTTP_400_BAD_REQUEST)
         return Response({
             'success': True,
-            'data': UserDetailSerializer(teacher).data,
+            'data': UserDetailSerializer(teacher, context={'request': request}).data,
             'message': 'Teacher profile retrieved.'
         }, status=status.HTTP_200_OK)
 
@@ -572,7 +662,7 @@ class UserDetailView(APIView):
             return Response({"success": False, "message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response({
             'success': True,
-            'data': UserDetailSerializer(user).data,
+            'data': UserDetailSerializer(user, context={'request': request}).data,
             'message': 'User profile retrieved.'
         }, status=status.HTTP_200_OK)
 

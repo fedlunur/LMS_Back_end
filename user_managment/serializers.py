@@ -179,7 +179,41 @@ class UserLoginSerializer(serializers.Serializer):
 # Exclude sensitive information from user details
 class UserDetailSerializer(serializers.ModelSerializer):
     role = RoleSerializer(read_only=True)
+    photo = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         exclude = ('password','isLoggedIn', 'is_superuser', 'is_staff', 'groups', 'user_permissions')
+    
+    def get_photo(self, obj):
+        """Return photo path relative to media root (e.g., /media/user_photos/...)"""
+        if not obj.photo:
+            return None
+        
+        from django.conf import settings
+        
+        # Normalize the photo path
+        photo_path = obj.photo.strip()
+        
+        # If already a full URL, extract just the path part
+        if photo_path.startswith(('http://', 'https://')):
+            # Extract path from URL (everything after domain)
+            from urllib.parse import urlparse
+            parsed = urlparse(photo_path)
+            photo_path = parsed.path
+        
+        # If path starts with /media/, return as-is
+        if photo_path.startswith(settings.MEDIA_URL):
+            return photo_path
+        # If path starts with / but not /media/, prepend MEDIA_URL
+        elif photo_path.startswith('/'):
+            return f"{settings.MEDIA_URL.rstrip('/')}{photo_path}"
+        else:
+            # Relative path - check if it already contains media path
+            if photo_path.startswith('media/'):
+                # Already has media/ prefix, just add leading slash
+                return f"/{photo_path.lstrip('/')}"
+            else:
+                # Relative path, prepend MEDIA_URL
+                return f"{settings.MEDIA_URL.rstrip('/')}/{photo_path.lstrip('/')}"
 
