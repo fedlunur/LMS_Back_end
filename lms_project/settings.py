@@ -328,6 +328,30 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
 
 
+# -------------------- REDIS CACHE --------------------
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://redis:6379/1',  # Use DB 1 for cache (DB 0 for channels)
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'lms',
+        'TIMEOUT': 300,  # Default timeout 5 minutes
+    }
+}
+
+# Fallback to locmem if Redis is unavailable (development only)
+try:
+    import redis
+    redis.Redis(host='redis', port=6379, db=1).ping()
+except Exception:
+    # Redis not available, fallback to local memory cache
+    CACHES['default'] = {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'chatbot-cache',
+    }
+
 # -------------------- CHANNELS / ASGI --------------------
 ASGI_APPLICATION = 'lms_project.asgi.application'
 CHANNEL_LAYERS = {

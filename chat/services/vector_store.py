@@ -3,6 +3,7 @@ Vector store service for semantic search using ChromaDB.
 Stores and retrieves embeddings of course content, FAQs, announcements, etc.
 """
 import os
+import threading
 from typing import List, Dict, Optional, Tuple
 from django.conf import settings
 import chromadb
@@ -14,28 +15,40 @@ logger = logging.getLogger(__name__)
 
 # Global cache for embedding model (loaded once)
 _embedding_model_cache = None
+_embedding_model_lock = threading.Lock()
 _vector_store_instance = None
+_vector_store_lock = threading.Lock()
 
 
 def get_vector_store():
-    """Get or create singleton VectorStore instance."""
+    """Get or create singleton VectorStore instance (thread-safe)."""
     global _vector_store_instance
     if _vector_store_instance is None:
-        _vector_store_instance = VectorStore()
+        with _vector_store_lock:
+            # Double-check pattern to avoid race condition
+            if _vector_store_instance is None:
+                _vector_store_instance = VectorStore()
     return _vector_store_instance
 
 
 def get_embedding_model():
-    """Get or create cached embedding model."""
+    """
+    Get or create cached embedding model (thread-safe singleton).
+    This model is expensive to load (~30 seconds), so we cache it globally.
+    """
     global _embedding_model_cache
     if _embedding_model_cache is None:
-        model_name = getattr(settings, "EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-        try:
-            _embedding_model_cache = SentenceTransformer(model_name)
-            logger.info(f"Loaded embedding model: {model_name} (cached)")
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            raise
+        with _embedding_model_lock:
+            # Double-check pattern to avoid race condition
+            if _embedding_model_cache is None:
+                model_name = getattr(settings, "EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+                try:
+                    logger.info(f"Loading embedding model: {model_name} (this may take ~30 seconds on first load)...")
+                    _embedding_model_cache = SentenceTransformer(model_name)
+                    logger.info(f"Successfully loaded embedding model: {model_name} (cached globally)")
+                except Exception as e:
+                    logger.error(f"Failed to load embedding model: {e}")
+                    raise
     return _embedding_model_cache
 
 
@@ -213,4 +226,3 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error getting collection stats: {e}")
             return {"total_documents": 0, "collection_name": self.collection.name}
-
