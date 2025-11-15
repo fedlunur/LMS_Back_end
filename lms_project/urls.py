@@ -48,6 +48,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from chat.views import ChatbotAPIView, CreateChatRoomAPIView, ListUserRoomsAPIView, ListRoomMessagesAPIView
 from rest_framework.routers import DefaultRouter
 router = DefaultRouter()
 """ structure Routes """
@@ -182,6 +183,12 @@ urlpatterns = [
     # Success page can call this to finalize by session_id
     re_path(r'^api/payments/checkout/session/(?P<session_id>[^/]+)/confirm/$', confirm_checkout_session_view, name='confirm_checkout_session'),
   
+
+    # Chat app
+    re_path(r'^api/chat/chatbot/?$', ChatbotAPIView.as_view(), name='chatbot'),
+    re_path(r'^api/chat/room/create/?$', CreateChatRoomAPIView.as_view(), name='chat_create_room'),
+    re_path(r'^api/chat/rooms/?$', ListUserRoomsAPIView.as_view(), name='chat_list_rooms'),
+    re_path(r'^api/chat/messages/(?P<room_number>[^/]+)/?$', ListRoomMessagesAPIView.as_view(), name='chat_list_messages'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

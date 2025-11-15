@@ -64,6 +64,8 @@ INSTALLED_APPS = [
     'courses',
     'grading',
     'payments',
+    'chat',
+    'channels',
   
    
   
@@ -313,3 +315,26 @@ EMAIL_VERIFICATION_SUBJECT = os.getenv(
 EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES = int(
     os.getenv("EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES", "15")
 )
+
+
+# -------------------- GEMINI AI CHATBOT --------------------
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash")
+
+# -------------------- VECTOR DATABASE / EMBEDDINGS --------------------
+# Embedding model for semantic search (sentence-transformers)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# Path to ChromaDB persistent storage
+CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
+
+
+# -------------------- CHANNELS / ASGI --------------------
+ASGI_APPLICATION = 'lms_project.asgi.application'
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("redis", 6379)], 
+        },
+    },
+}

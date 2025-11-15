@@ -2,6 +2,7 @@ import importlib
 from django.apps import apps
 from django.db.models.base import ModelBase
 
+from chat.models import ChatMessage, ChatRoom
 from user_managment.models import *
 
 # Import courses models module directly to avoid import timing issues
@@ -56,6 +57,10 @@ def get_model_mapping():
         "assessmentanswer": courses_models.AssessmentAnswer,
         "assessmentattempt": courses_models.AssessmentAttempt,
         "assessmentresponse": courses_models.AssessmentResponse,
+
+        #  Chat 
+  
+    
     }
 
 # Initialize model_mapping

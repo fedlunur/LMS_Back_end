@@ -1,16 +1,14 @@
 services:
   db:
     image: postgres:13
-    volumes:
-      - ./data/db:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=${DB_NAME}
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_HOST_AUTH_METHOD=trust
-      
     networks:
       - lmsbackend_my_network
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: always
@@ -20,36 +18,35 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
-    networks:
-      - lmsbackend_my_network
     ports:
       - "8080:80"
+    networks:
+      - lmsbackend_my_network
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - lmsbackend_my_network
+    restart: unless-stopped
 
   web:
     build: .
-    image: lmslatest
     command: daphne -b 0.0.0.0 -p 8888 lms_project.asgi:application
+    networks:
+      - lmsbackend_my_network
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
     volumes:
-      - ./:/code
+      - .:/code
       - ./media:/code/media
       - ./static:/code/static
       - ./templates:/code/templates
-    working_dir: /code
     ports:
       - "8888:8888"
-    environment:
-      - POSTGRES_DB=${DB_NAME}
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_HOST=db  # Use service name 'db' here, NOT localhost
-      - POSTGRES_PORT=${DB_PORT}
-      - DEBUG=${DEBUG}
-    depends_on:
-      - db
-    env_file:
-      - .env
-    networks:
-      - lmsbackend_my_network
 
 networks:
   lmsbackend_my_network:

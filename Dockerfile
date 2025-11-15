@@ -21,10 +21,50 @@
 
 # # Define the command to start the app
 # CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
-FROM python:3
+
+# # *********************************************************
+
+# FROM python:3
+# ENV PYTHONDONTWRITEBYTECODE=1
+# ENV PYTHONUNBUFFERED=1
+# WORKDIR /code
+# COPY requirements.txt /code/
+
+# RUN pip install -r requirements.txt
+
+# # ********************************
+
+
+FROM python:3.10-slim
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+
 WORKDIR /code
+
+# Install required system tools for heavy pip packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    python3-dev \
+    git \
+    curl && \
+    apt-get clean
+
 COPY requirements.txt /code/
 
-RUN pip install -r requirements.txt
+# Upgrade pip + wheel
+RUN pip install --upgrade pip setuptools wheel
+
+# Install numpy FIRST to prevent source builds
+RUN pip install numpy==1.26.4
+
+# Install PyTorch CPU BEFORE sentence-transformers
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install the rest
+RUN pip install --prefer-binary --no-cache-dir -r requirements.txt
+
+COPY . /code/
+
