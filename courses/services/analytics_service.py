@@ -43,7 +43,8 @@ def compute_teacher_earnings_overview(instructor):
 
 
 def compute_teacher_revenue_history(instructor):
-	courses_qs = Course.objects.filter(instructor=instructor)
+	# Only consider paid courses for revenue history (exclude free/zero-price courses)
+	courses_qs = Course.objects.filter(instructor=instructor, price__gt=0)
 	revenue_items = []
 	for course in courses_qs:
 		enrolls = Enrollment.objects.filter(
@@ -66,6 +67,7 @@ def compute_teacher_revenue_history(instructor):
 		})
 	revenue_items.sort(key=lambda item: item.get("last_paid_at") or timezone.datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 	return revenue_items
+
 
 
 def compute_teacher_monthly_revenue_trend(instructor):
@@ -271,6 +273,91 @@ def compute_teacher_top_performers(instructor, limit: int = 5):
 		item["rank"] = idx
 
 	return items[:limit]
+
+
+def compute_teacher_recent_student_activity(instructor, limit: int = 10):
+	"""
+	Recent student activity across this instructor's courses.
+	Shapes data for a simple "Recent Student Activity" widget, combining
+	assignments and quizzes with human-readable labels.
+	"""
+	now = timezone.now()
+
+	def ago(dt):
+		if not dt:
+			return None
+		from django.utils.timesince import timesince
+		return f"{timesince(dt, now)} ago"
+
+	course_ids = list(Course.objects.filter(instructor=instructor).values_list('id', flat=True))
+	if not course_ids:
+		return []
+
+	activities: list[dict] = []
+
+	# Assignment submissions
+	assign_submissions = AssignmentSubmission.objects.filter(
+		lesson__course_id__in=course_ids
+	).select_related('student', 'lesson', 'lesson__course').order_by('-submitted_at', '-created_at')[: limit * 2]
+
+	for sub in assign_submissions:
+		timestamp = sub.submitted_at or sub.created_at
+		# Verb: submitted vs completed (graded/returned)
+		if sub.status in ('graded', 'returned'):
+			action = "completed"
+		else:
+			action = "submitted"
+
+		score_pct = None
+		if sub.score is not None and sub.max_score:
+			try:
+				score_pct = round((float(sub.score) / float(sub.max_score)) * 100.0, 1)
+			except Exception:
+				score_pct = None
+
+		activities.append({
+			"type": "assignment",
+			"student_name": _student_display_name(sub.student),
+			"action": action,
+			"activity_title": sub.lesson.title,
+			"course_title": sub.lesson.course.title,
+			"score_pct": score_pct,
+			"time_ago": ago(timestamp),
+			"created_at": timestamp,
+			"meta": {
+				"submission_id": sub.id,
+				"status": sub.status,
+			},
+		})
+
+	# Quiz attempts (only completed)
+	quiz_attempts = QuizAttempt.objects.filter(
+		lesson__course_id__in=course_ids,
+		is_in_progress=False,
+	).select_related('student', 'lesson', 'lesson__course').order_by('-completed_at', '-started_at')[: limit * 2]
+
+	for qa in quiz_attempts:
+		timestamp = qa.completed_at or qa.started_at
+		score_pct = round(float(qa.score or 0.0), 1)
+
+		activities.append({
+			"type": "quiz",
+			"student_name": _student_display_name(qa.student),
+			"action": "completed",
+			"activity_title": qa.lesson.title,
+			"course_title": qa.lesson.course.title,
+			"score_pct": score_pct,
+			"time_ago": ago(timestamp),
+			"created_at": timestamp,
+			"meta": {
+				"attempt_id": qa.id,
+				"passed": qa.passed,
+			},
+		})
+
+	# Sort by newest first and trim
+	activities.sort(key=lambda item: item.get("created_at") or now, reverse=True)
+	return activities[:limit]
 
 def compute_teacher_recent_activities(instructor):
 	now = timezone.now()

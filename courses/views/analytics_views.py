@@ -15,6 +15,7 @@ from courses.services.analytics_service import (
 	compute_teacher_recent_activities,
 	compute_teacher_dashboard_summary,
 	compute_teacher_students_overview,
+	compute_teacher_recent_student_activity,
 )
 
 
@@ -111,5 +112,55 @@ def get_teacher_progress_distribution_view(request):
 		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
 	data = compute_teacher_progress_distribution(request.user)
 	return Response({"success": True, "data": data, "message": "Progress distribution retrieved successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_students_analytics_overview_view(request):
+	"""
+	Compact analytics overview for cards:
+	- total_views
+	- completion_rate
+	- avg_session_hours
+	- avg_rating
+	"""
+	if not _is_instructor(request.user):
+		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
+	full = compute_teacher_students_overview(request.user)
+	payload = {
+		"total_views": full.get("total_views", 0),
+		"completion_rate": full.get("completion_rate", 0.0),
+		"avg_session_hours": full.get("avg_session_hours", 0.0),
+		"avg_rating": full.get("avg_rating", 0.0),
+	}
+	return Response(
+		{
+			"success": True,
+			"data": payload,
+			"message": "Student analytics overview retrieved successfully."
+		},
+		status=status.HTTP_200_OK,
+	)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_recent_student_activity_view(request):
+	if not _is_instructor(request.user):
+		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
+	try:
+		limit_param = request.query_params.get("limit")
+		limit = int(limit_param) if limit_param else 10
+	except Exception:
+		limit = 10
+	items = compute_teacher_recent_student_activity(request.user, limit=limit)
+	return Response(
+		{
+			"success": True,
+			"data": items,
+			"message": "Recent student activity retrieved successfully."
+		},
+		status=status.HTTP_200_OK
+	)
 
 

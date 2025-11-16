@@ -53,10 +53,12 @@ from courses.views.analytics_views import (
     get_teacher_student_engagement_metrics_view,
     get_teacher_top_performers_view,
     get_teacher_progress_distribution_view,
+    get_teacher_students_analytics_overview_view,
     get_teacher_dashboard_overview_view,
     get_teacher_recent_activities_view,
     get_teacher_dashboard_summary_view,
     get_teacher_students_overview_view,
+    get_teacher_recent_student_activity_view,
 )
 from courses.constants import *
 from django.urls import path, include
@@ -198,6 +200,8 @@ urlpatterns = [
     re_path(r'^api/teacher/analytics/student-engagement/?$', get_teacher_student_engagement_metrics_view, name='teacher_student_engagement_metrics'),
     re_path(r'^api/teacher/analytics/top-performers/?$', get_teacher_top_performers_view, name='teacher_top_performers'),
     re_path(r'^api/teacher/analytics/progress-distribution/?$', get_teacher_progress_distribution_view, name='teacher_progress_distribution'),
+    re_path(r'^api/teacher/analytics/students-overview/?$', get_teacher_students_analytics_overview_view, name='teacher_students_analytics_overview'),
+    re_path(r'^api/teacher/dashboard/recent-student-activity/?$', get_teacher_recent_student_activity_view, name='teacher_recent_student_activity'),
     re_path(r'^api/course-students/(?P<course_id>\d+)/$', get_course_students_view, name='course_students'),
     re_path(r'^api/student-progress/(?P<course_id>\d+)/(?P<student_id>\d+)/$', get_student_progress_view, name='student_progress'),
     re_path(r'^api/assignment-submissions/(?P<lesson_id>\d+)/$', get_assignment_submissions_view, name='assignment_submissions'),
