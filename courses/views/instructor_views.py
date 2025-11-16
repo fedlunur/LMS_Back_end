@@ -11,6 +11,114 @@ from django.db.models import Sum
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def get_teacher_earnings_overview_view(request):
+	"""
+	Earnings overview for an instructor:
+	- total_earnings (sum of prices for completed enrollments)
+	- this_month_earnings
+	- total_enrolled_students (distinct across instructor courses)
+	- active_courses (published with at least one completed enrollment)
+	"""
+	# Only instructors (role.name == 'teacher') or staff can access
+	if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+		return Response({
+			"success": False,
+			"message": "You are not authorized to access instructor earnings."
+		}, status=status.HTTP_403_FORBIDDEN)
+
+	instructor = request.user
+	now = timezone.now()
+	start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+	# Completed enrollments for instructor's courses
+	base_enroll_qs = Enrollment.objects.filter(
+		course__instructor=instructor,
+		payment_status='completed',
+		is_enrolled=True
+	).select_related('course')
+
+	# Earnings
+	total_earnings_val = base_enroll_qs.aggregate(total=Sum('course__price')).get('total') or 0
+	this_month_earnings_val = base_enroll_qs.filter(enrolled_at__gte=start_of_month).aggregate(total=Sum('course__price')).get('total') or 0
+
+	# Distinct students and active courses
+	total_enrolled_students = base_enroll_qs.values('student_id').distinct().count()
+	active_courses = Course.objects.filter(instructor=instructor, status='published', enrollments__in=base_enroll_qs).distinct().count()
+
+	payload = {
+		"total_earnings": round(float(total_earnings_val), 2),
+		"this_month_earnings": round(float(this_month_earnings_val), 2),
+		"currency": "USD",
+		"total_enrolled_students": total_enrolled_students,
+		"active_courses": active_courses
+	}
+
+	return Response({
+		"success": True,
+		"data": payload,
+		"message": "Instructor earnings overview retrieved successfully."
+	}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_revenue_history_view(request):
+	"""
+	Revenue history per course for an instructor.
+	Returns a list of items sorted by last_paid_at desc:
+	- course_id, course_title
+	- students_enrolled (completed enrollments count)
+	- amount (sum of course price for completed enrollments)
+	- last_paid_at (datetime of the most recent completed enrollment)
+	"""
+	# Only instructors (role.name == 'teacher') or staff can access
+	if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+		return Response({
+			"success": False,
+			"message": "You are not authorized to access instructor revenue history."
+		}, status=status.HTTP_403_FORBIDDEN)
+
+	instructor = request.user
+
+	# Pull all instructor courses
+	courses_qs = Course.objects.filter(instructor=instructor)
+
+	# Pre-fetch completed enrollments per course
+	revenue_items = []
+	for course in courses_qs:
+		enrolls = Enrollment.objects.filter(
+			course=course,
+			payment_status='completed',
+			is_enrolled=True
+		).order_by('-enrolled_at')
+
+		if not enrolls.exists():
+			continue
+
+		students_enrolled = enrolls.count()
+		total_amount = enrolls.aggregate(total=Sum('course__price')).get('total') or 0
+		last_paid_at = enrolls.first().enrolled_at
+
+		revenue_items.append({
+			"course_id": course.id,
+			"course_title": course.title,
+			"students_enrolled": students_enrolled,
+			"amount": round(float(total_amount), 2),
+			"currency": "USD",
+			"last_paid_at": last_paid_at
+		})
+
+	# Sort by most recent payment
+	revenue_items.sort(key=lambda item: item.get("last_paid_at") or timezone.datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+	return Response({
+		"success": True,
+		"data": revenue_items,
+		"message": "Instructor revenue history retrieved successfully."
+	}, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_all_student_attempts_view(request, lesson_id):
     """
     Get all student attempts for a quiz (for teachers).
@@ -510,7 +618,7 @@ def get_teacher_recent_activities_view(request):
             "user_name": e.student.get_full_name() or e.student.email,
             "course_title": e.course.title,
             "time_ago": ago(e.enrolled_at),
-            "status_label": f"ETB {e.course.price} received",
+			"status_label": f"USD {e.course.price} received",
             "action_label": "View",
             "created_at": e.enrolled_at,
             "meta": {"enrollment_id": e.id, "amount": float(e.course.price)}
