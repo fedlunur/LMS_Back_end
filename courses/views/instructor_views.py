@@ -11,6 +11,176 @@ from django.db.models import Sum
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def get_teacher_monthly_revenue_trend_view(request):
+	"""
+	Monthly revenue trend for an instructor for the last 12 months (including current month).
+	For each month returns:
+	- month_label (e.g., 'January 2025')
+	- students (count of completed enrollments in that month)
+	- revenue (sum of course prices for completed enrollments in that month)
+	- change_pct_mom (revenue percent change month-over-month)
+	"""
+	# Only instructors (role.name == 'teacher') or staff can access
+	if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+		return Response({
+			"success": False,
+			"message": "You are not authorized to access instructor analytics."
+		}, status=status.HTTP_403_FORBIDDEN)
+
+	instructor = request.user
+	now = timezone.now()
+
+	# Helper to get start of month
+	def start_of_month(dt):
+		return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+	# Build a list of month windows (start, end) for last 12 months
+	months = []
+	cur = start_of_month(now)
+	for _ in range(12):
+		months.append(cur)
+		# Go back one month safely
+		year = cur.year if cur.month > 1 else cur.year - 1
+		month = cur.month - 1 if cur.month > 1 else 12
+		cur = cur.replace(year=year, month=month)
+	months = list(reversed(months))  # chronological order
+
+	# Preload base enrollments for instructor
+	base_enroll_qs = Enrollment.objects.filter(
+		course__instructor=instructor,
+		payment_status='completed',
+		is_enrolled=True
+	)
+
+	trend = []
+	prev_revenue = None
+	for month_start in months:
+		# Compute end as next month start - 1 sec
+		year = month_start.year if month_start.month < 12 else month_start.year + 1
+		month = month_start.month + 1 if month_start.month < 12 else 1
+		next_month_start = month_start.replace(year=year, month=month)
+
+		month_qs = base_enroll_qs.filter(enrolled_at__gte=month_start, enrolled_at__lt=next_month_start)
+		month_students = month_qs.count()
+		month_revenue_val = float(month_qs.aggregate(total=Sum('course__price')).get('total') or 0.0)
+
+		change_pct = 0.0
+		if prev_revenue is None:
+			change_pct = 0.0
+		elif prev_revenue > 0.0:
+			change_pct = round(((month_revenue_val - prev_revenue) / prev_revenue) * 100.0, 1)
+		elif month_revenue_val > 0.0:
+			change_pct = 100.0
+
+		trend.append({
+			"month_label": month_start.strftime("%B %Y"),
+			"students": month_students,
+			"revenue": round(month_revenue_val, 2),
+			"currency": "USD",
+			"change_pct_mom": change_pct
+		})
+
+		prev_revenue = month_revenue_val
+
+	return Response({
+		"success": True,
+		"data": trend,
+		"message": "Instructor monthly revenue trend retrieved successfully."
+	}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_student_engagement_metrics_view(request):
+	"""
+	Student engagement metrics for an instructor across all their courses:
+	- video_completion_rate: completed lesson progresses / total lesson progresses
+	- assignment_submission_rate: distinct students with a submission / total students
+	- discussion_participation_rate: distinct students who posted in Q&A / total students
+	- quiz_performance_avg: average score across quiz attempts (0-100)
+	Also includes targets and status relative to target.
+	"""
+	# Only instructors (role.name == 'teacher') or staff can access
+	if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+		return Response({
+			"success": False,
+			"message": "You are not authorized to access instructor analytics."
+		}, status=status.HTTP_403_FORBIDDEN)
+
+	instructor = request.user
+
+	# Base enrollments for instructor's courses
+	base_enroll_qs = Enrollment.objects.filter(
+		course__instructor=instructor,
+		payment_status='completed',
+		is_enrolled=True
+	).select_related('student', 'course')
+
+	total_students = base_enroll_qs.values('student_id').distinct().count()
+
+	# Video completion rate
+	lp_qs = LessonProgress.objects.filter(enrollment__in=base_enroll_qs)
+	total_lp = lp_qs.count()
+	completed_lp = lp_qs.filter(completed=True).count()
+	video_completion_rate = round((completed_lp / total_lp) * 100.0, 1) if total_lp > 0 else 0.0
+
+	# Assignment submission rate (students with at least one submission / total students)
+	as_qs = AssignmentSubmission.objects.filter(lesson__course__instructor=instructor)
+	students_with_submission = as_qs.values('student_id').distinct().count()
+	assignment_submission_rate = round((students_with_submission / total_students) * 100.0, 1) if total_students > 0 else 0.0
+
+	# Discussion participation rate (students who asked at least one question / total students)
+	qa_qs = CourseQA.objects.filter(course__instructor=instructor)
+	students_in_discussion = qa_qs.values('student_id').distinct().count()
+	discussion_participation_rate = round((students_in_discussion / total_students) * 100.0, 1) if total_students > 0 else 0.0
+
+	# Quiz performance average (average score across attempts, 0-100)
+	attempt_qs = QuizAttempt.objects.filter(lesson__course__instructor=instructor, is_in_progress=False)
+	avg_score = attempt_qs.aggregate(avg=Avg('score')).get('avg') or 0.0
+	quiz_performance_avg = round(float(avg_score), 1)
+
+	# Targets: fixed default 70% for now (same for all metrics)
+	targets = {
+		"video_completion_rate": 70.0,
+		"assignment_submission_rate": 70.0,
+		"discussion_participation_rate": 70.0,
+		"quiz_performance_avg": 70.0,
+	}
+
+	def status_label(value, target):
+		return "Target met" if value >= target else "Below target"
+
+	payload = {
+		"video_completion_rate": {
+			"value_pct": video_completion_rate,
+			"target_pct": targets["video_completion_rate"],
+			"status": status_label(video_completion_rate, targets["video_completion_rate"])
+		},
+		"assignment_submission_rate": {
+			"value_pct": assignment_submission_rate,
+			"target_pct": targets["assignment_submission_rate"],
+			"status": status_label(assignment_submission_rate, targets["assignment_submission_rate"])
+		},
+		"discussion_participation_rate": {
+			"value_pct": discussion_participation_rate,
+			"target_pct": targets["discussion_participation_rate"],
+			"status": status_label(discussion_participation_rate, targets["discussion_participation_rate"])
+		},
+		"quiz_performance_avg": {
+			"value_pct": quiz_performance_avg,
+			"target_pct": targets["quiz_performance_avg"],
+			"status": status_label(quiz_performance_avg, targets["quiz_performance_avg"])
+		}
+	}
+
+	return Response({
+		"success": True,
+		"data": payload,
+		"message": "Instructor student engagement metrics retrieved successfully."
+	}, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_teacher_earnings_overview_view(request):
 	"""
 	Earnings overview for an instructor:

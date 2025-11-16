@@ -48,6 +48,8 @@ from courses.views import (
 from courses.views.instructor_views import (
     get_teacher_earnings_overview_view,
     get_teacher_revenue_history_view,
+    get_teacher_monthly_revenue_trend_view,
+    get_teacher_student_engagement_metrics_view,
 )
 from courses.constants import *
 from django.urls import path, include
@@ -182,6 +184,8 @@ urlpatterns = [
     re_path(r'^api/teacher/students/overview/?$', get_teacher_students_overview_view, name='teacher_students_overview'),
     re_path(r'^api/teacher/earnings/overview/?$', get_teacher_earnings_overview_view, name='teacher_earnings_overview'),
     re_path(r'^api/teacher/earnings/revenue-history/?$', get_teacher_revenue_history_view, name='teacher_revenue_history'),
+    re_path(r'^api/teacher/analytics/monthly-revenue-trend/?$', get_teacher_monthly_revenue_trend_view, name='teacher_monthly_revenue_trend'),
+    re_path(r'^api/teacher/analytics/student-engagement/?$', get_teacher_student_engagement_metrics_view, name='teacher_student_engagement_metrics'),
     re_path(r'^api/course-students/(?P<course_id>\d+)/$', get_course_students_view, name='course_students'),
     re_path(r'^api/student-progress/(?P<course_id>\d+)/(?P<student_id>\d+)/$', get_student_progress_view, name='student_progress'),
     re_path(r'^api/assignment-submissions/(?P<lesson_id>\d+)/$', get_assignment_submissions_view, name='assignment_submissions'),
