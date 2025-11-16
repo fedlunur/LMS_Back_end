@@ -71,6 +71,31 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(enrollment__student=user)
                 elif model_name == 'courserating':
                     queryset = queryset.filter(student=user)
+        
+        # Event filtering: students see events for enrolled courses, instructors see their courses
+        if model_name == 'event' and self.request.user.is_authenticated:
+            user = self.request.user
+            if user.is_staff:
+                # Staff can see all events
+                pass
+            else:
+                # Check if user is instructor (has teacher role)
+                is_instructor = bool(getattr(user, 'is_staff', False) or 
+                                   (getattr(user, 'role', None) and 
+                                    getattr(user.role, 'name', '').lower() == 'teacher'))
+                
+                if is_instructor:
+                    # Instructors see events for their courses
+                    queryset = queryset.filter(course__instructor=user)
+                else:
+                    # Students see events for courses they're enrolled in
+                    from courses.models import Enrollment
+                    enrolled_course_ids = Enrollment.objects.filter(
+                        student=user,
+                        payment_status='completed',
+                        is_enrolled=True
+                    ).values_list('course_id', flat=True)
+                    queryset = queryset.filter(course_id__in=enrolled_course_ids)
 
         # Only show published courses to regular users, but allow instructors to see their own drafts
         if model_name == 'course' and self.request.user.is_authenticated and not self.request.user.is_staff:
@@ -128,6 +153,35 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         model_name = self.basename.lower()
         user = request.user
         if not user.is_staff and user.is_authenticated:
+            # Event creation: only instructors can create events for their courses
+            if model_name == 'event':
+                course_id = request.data.get('course')
+                if course_id:
+                    Course = model_mapping.get('course')
+                    if Course:
+                        try:
+                            course = Course.objects.get(pk=course_id)
+                            is_instructor = bool(getattr(user, 'is_staff', False) or 
+                                               (getattr(user, 'role', None) and 
+                                                getattr(user.role, 'name', '').lower() == 'teacher'))
+                            if not is_instructor or course.instructor_id != user.id:
+                                return self.failure_response(
+                                    "You can only create events for your own courses.", 
+                                    status.HTTP_403_FORBIDDEN
+                                )
+                        except Course.DoesNotExist:
+                            return self.failure_response("Course not found.", status.HTTP_404_NOT_FOUND)
+                else:
+                    # Events without a course can be created by any instructor
+                    is_instructor = bool(getattr(user, 'is_staff', False) or 
+                                       (getattr(user, 'role', None) and 
+                                        getattr(user.role, 'name', '').lower() == 'teacher'))
+                    if not is_instructor:
+                        return self.failure_response(
+                            "Only instructors can create events.", 
+                            status.HTTP_403_FORBIDDEN
+                        )
+            
             protected = [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
                 'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
@@ -245,6 +299,16 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             # Ownership checks
             if model_name == 'course' and getattr(instance, 'instructor_id', None) != user.id:
                 return self.failure_response("You are not allowed to modify this course.", status.HTTP_403_FORBIDDEN)
+            elif model_name == 'event':
+                # Events: only instructors can modify events for their courses
+                course = getattr(instance, 'course', None)
+                is_instructor = bool(getattr(user, 'is_staff', False) or 
+                                   (getattr(user, 'role', None) and 
+                                    getattr(user.role, 'name', '').lower() == 'teacher'))
+                if not is_instructor:
+                    return self.failure_response("Only instructors can modify events.", status.HTTP_403_FORBIDDEN)
+                if course and course.instructor_id != user.id:
+                    return self.failure_response("You can only modify events for your own courses.", status.HTTP_403_FORBIDDEN)
             elif model_name in [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
                 'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
@@ -279,6 +343,16 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         if not user.is_staff:
             if model_name == 'course' and getattr(instance, 'instructor_id', None) != user.id:
                 return self.failure_response("You are not allowed to delete this course.", status.HTTP_403_FORBIDDEN)
+            elif model_name == 'event':
+                # Events: only instructors can delete events for their courses
+                course = getattr(instance, 'course', None)
+                is_instructor = bool(getattr(user, 'is_staff', False) or 
+                                   (getattr(user, 'role', None) and 
+                                    getattr(user.role, 'name', '').lower() == 'teacher'))
+                if not is_instructor:
+                    return self.failure_response("Only instructors can delete events.", status.HTTP_403_FORBIDDEN)
+                if course and course.instructor_id != user.id:
+                    return self.failure_response("You can only delete events for your own courses.", status.HTTP_403_FORBIDDEN)
             elif model_name in [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
                 'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',

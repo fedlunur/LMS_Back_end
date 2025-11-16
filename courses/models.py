@@ -1647,20 +1647,30 @@ class AssessmentResponse(models.Model):
 
     
 
-class Event(models.Model):
-    EVENT_TYPES = (
-        ('live_session', 'Live Session'),
-        ('deadline', 'Assignment Deadline'),
-        ('qa_session', 'Student Q&A Session'),
-        ('meeting', 'Course Review Meeting'),
-        ('general', 'General Event'),
-    )
+class EventType(models.Model):
+    """Flexible event types that can be managed via CRUD"""
+    name = models.CharField(max_length=100, unique=True, help_text="Internal name (e.g., 'live_session')")
+    display_name = models.CharField(max_length=100, help_text="Display name (e.g., 'Live Session')")
+    description = models.TextField(blank=True, null=True)
+    icon = models.CharField(max_length=50, blank=True, help_text="Icon identifier for frontend")
+    color = models.CharField(max_length=20, blank=True, help_text="Color code for UI (e.g., '#3B82F6')")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['display_name']
+        verbose_name_plural = "Event Types"
+
+    def __str__(self):
+        return self.display_name
+
+
+class Event(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='events', null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    event_type = models.CharField(max_length=50, choices=EVENT_TYPES, default='general')
-
+    event_type = models.ForeignKey(EventType, on_delete=models.PROTECT, related_name='events', null=True, blank=True)
     start_datetime = models.DateTimeField()
     end_datetime = models.DateTimeField(blank=True, null=True)
 

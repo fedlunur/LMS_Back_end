@@ -46,11 +46,6 @@ from courses.views import (
     get_quiz_analytics_view,
     get_all_student_attempts_view,
     # Event views
-    create_event_view,
-    list_events_view,
-    get_event_detail_view,
-    update_event_view,
-    delete_event_view,
     get_student_calendar_view,
 )
 from courses.views.analytics_views import (
@@ -136,6 +131,7 @@ for name in [
     "assessmentattempt",
     "assessmentresponse",
     "event",
+    "eventtype",
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 
@@ -253,12 +249,7 @@ urlpatterns = [
     re_path(r'^api/chat/mark-read/(?P<room_number>[^/]+)/?$', MarkMessagesAsReadAPIView.as_view(), name='chat_mark_read'),
     re_path(r'^api/chat/unread-count/(?P<room_number>[^/]+)/?$', GetUnreadCountAPIView.as_view(), name='chat_unread_count'),
     
-    # Events - Custom endpoints for better frontend integration
-    re_path(r'^api/events/?$', list_events_view, name='list_events'),
-    re_path(r'^api/events/create/?$', create_event_view, name='create_event'),
-    re_path(r'^api/events/(?P<event_id>\d+)/?$', get_event_detail_view, name='get_event_detail'),
-    re_path(r'^api/events/(?P<event_id>\d+)/update/?$', update_event_view, name='update_event'),
-    re_path(r'^api/events/(?P<event_id>\d+)/delete/?$', delete_event_view, name='delete_event'),
+    # Events - Student calendar endpoint (special formatted view)
     re_path(r'^api/events/calendar/?$', get_student_calendar_view, name='student_calendar'),
     ] 
 if settings.DEBUG:

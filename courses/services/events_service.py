@@ -1,30 +1,10 @@
 from django.utils import timezone
-from courses.models import Event, Course, Enrollment
+from courses.models import Event, Enrollment
 
 
 def _is_instructor(user):
 	"""Check if user is an instructor (staff or has teacher role)"""
 	return bool(getattr(user, 'is_staff', False) or (getattr(user, 'role', None) and getattr(user.role, 'name', '').lower() == 'teacher'))
-
-
-def can_create_event(user, course_id=None):
-	"""
-	Check if user can create an event.
-	- Instructors can create events for their courses
-	- Staff can create events for any course
-	"""
-	if not _is_instructor(user):
-		return False, "Only instructors can create events."
-	
-	if course_id:
-		try:
-			course = Course.objects.get(id=course_id)
-			if course.instructor != user and not user.is_staff:
-				return False, "You can only create events for your own courses."
-		except Course.DoesNotExist:
-			return False, "Course not found."
-	
-	return True, None
 
 
 def get_student_enrolled_courses(user):
@@ -41,32 +21,6 @@ def get_student_enrolled_courses(user):
 	return list(enrollments)
 
 
-def get_events_for_student(user):
-	"""
-	Get all events for courses the student is enrolled in.
-	"""
-	enrolled_course_ids = get_student_enrolled_courses(user)
-	
-	events = Event.objects.filter(
-		course_id__in=enrolled_course_ids
-	).select_related('course').order_by('start_datetime')
-	
-	return events
-
-
-def get_events_for_instructor(user, course_id=None):
-	"""
-	Get all events for courses the instructor teaches.
-	If course_id is provided, filter by that course.
-	"""
-	queryset = Event.objects.filter(course__instructor=user).select_related('course')
-	
-	if course_id:
-		queryset = queryset.filter(course_id=course_id)
-	
-	return queryset.order_by('start_datetime')
-
-
 def format_event_for_calendar(event, now=None):
 	"""
 	Format an event for calendar display with relative dates.
@@ -74,8 +28,6 @@ def format_event_for_calendar(event, now=None):
 	"""
 	if now is None:
 		now = timezone.now()
-	
-	from datetime import timedelta
 	
 	start = event.start_datetime
 	if not start:
@@ -109,8 +61,9 @@ def format_event_for_calendar(event, now=None):
 		"title": event.title,
 		"course_title": event.course.title if event.course else None,
 		"course_id": event.course.id if event.course else None,
-		"event_type": event.event_type,
-		"event_type_display": event.get_event_type_display(),
+		"event_type": event.event_type.name if event.event_type else None,
+		"event_type_id": event.event_type.id if event.event_type else None,
+		"event_type_display": event.event_type.display_name if event.event_type else "General Event",
 		"description": event.description,
 		"date_str": date_str,
 		"time_str": time_str,
@@ -138,7 +91,7 @@ def get_calendar_events_for_student(user, limit=None):
 	events = Event.objects.filter(
 		course_id__in=enrolled_course_ids,
 		start_datetime__gte=now.replace(hour=0, minute=0, second=0, microsecond=0)  # From start of today
-	).select_related('course').order_by('start_datetime')
+	).select_related('course', 'event_type').order_by('start_datetime')
 	
 	if limit:
 		events = events[:limit]
@@ -151,4 +104,3 @@ def get_calendar_events_for_student(user, limit=None):
 			formatted_events.append(formatted)
 	
 	return formatted_events
-

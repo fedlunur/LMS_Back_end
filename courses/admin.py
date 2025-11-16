@@ -12,7 +12,7 @@ from .models import (
     CourseRating, Conversation, Message,
     CourseOverview, CourseFAQ, AssignmentSubmission,
     FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer,
-    AssessmentAttempt, AssessmentResponse, Event,
+    AssessmentAttempt, AssessmentResponse, Event, EventType,
 )
 
 
@@ -404,6 +404,22 @@ class CourseFAQAdmin(admin.ModelAdmin):
     search_fields = ("question",)
 
 
+@admin.register(EventType)
+class EventTypeAdmin(admin.ModelAdmin):
+    list_display = ("name", "display_name", "icon", "color", "is_active", "created_at")
+    list_filter = ("is_active", "created_at")
+    search_fields = ("name", "display_name", "description")
+    ordering = ("display_name",)
+    fieldsets = (
+        ("Event Type Information", {
+            "fields": ("name", "display_name", "description")
+        }),
+        ("Display Settings", {
+            "fields": ("icon", "color", "is_active")
+        }),
+    )
+
+
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
     list_display = ("title", "course", "event_type", "start_datetime", "end_datetime", "created_at")
@@ -411,7 +427,7 @@ class EventAdmin(admin.ModelAdmin):
     search_fields = ("title", "description", "course__title")
     date_hierarchy = "start_datetime"
     ordering = ("-start_datetime",)
-    autocomplete_fields = ("course",)
+    autocomplete_fields = ("course", "event_type")
     fieldsets = (
         ("Event Information", {
             "fields": ("title", "description", "event_type", "course")
