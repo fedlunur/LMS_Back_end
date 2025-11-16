@@ -1,10 +1,10 @@
 from typing import Optional, Tuple
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 
 from courses.models import Enrollment, Certificate
+from lms_project.resend_email import send_email as send_resend_email
 
 
 def _common_context(enrollment: Enrollment) -> dict:
@@ -23,24 +23,14 @@ def _common_context(enrollment: Enrollment) -> dict:
 
 
 def _send(subject: str, to_email: str, txt_template: str, html_template: str, context: dict) -> None:
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
-
-    try:
-        text_body = render_to_string(txt_template, context)
-    except Exception:
-        # Fallback plain text if txt template missing
-        text_body = render_to_string(html_template, context)
-
-    html_body = render_to_string(html_template, context)
-
-    email_message = EmailMultiAlternatives(
+    """Send email using Resend API"""
+    send_resend_email(
         subject=subject,
-        body=text_body,
-        from_email=from_email,
-        to=[to_email],
+        to_email=to_email,
+        html_template=html_template,
+        txt_template=txt_template,
+        context=context,
     )
-    email_message.attach_alternative(html_body, "text/html")
-    email_message.send()
 
 
 def send_enrollment_email(enrollment: Enrollment, *, is_paid_pending: bool = False) -> None:

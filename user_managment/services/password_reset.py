@@ -4,11 +4,11 @@ from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 
 from user_managment.models import PasswordResetToken, User
+from lms_project.resend_email import send_email as send_resend_email
 
 logger = logging.getLogger(__name__)
 
@@ -53,33 +53,21 @@ def send_password_reset_email(user: User, *, extra_context: Optional[dict] = Non
     token = create_password_reset_token(user)
 
     context = _build_email_context(user, token, extra_context)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
 
     try:
-        text_body = render_to_string("user_managment/emails/password_reset.txt", context)
-    except Exception:
-        logger.debug("Plain-text password reset template missing; falling back to generated text.")
-        text_body = (
-            f"Hello {context.get('first_name') or user.email},\n\n"
-            f"Your password reset code is {token.code}. This code will expire in "
-            f"{DEFAULT_EXPIRY_MINUTES} minutes.\n\n"
-            f"If you did not request this, please ignore this email.\n\n"
-            f"Thank you,\n{context.get('project_name')}"
+        success = send_resend_email(
+            subject=EMAIL_SUBJECT,
+            to_email=user.email,
+            html_template="user_managment/emails/password_reset.html",
+            txt_template="user_managment/emails/password_reset.txt",
+            context=context,
         )
-
-    html_body = render_to_string("user_managment/emails/password_reset.html", context)
-
-    email_message = EmailMultiAlternatives(
-        subject=EMAIL_SUBJECT,
-        body=text_body,
-        from_email=from_email,
-        to=[user.email],
-    )
-    email_message.attach_alternative(html_body, "text/html")
-
-    try:
-        email_message.send()
-        logger.info("Password reset code %s sent to %s", token.code, user.email)
+        
+        if success:
+            logger.info("Password reset code %s sent to %s via Resend", token.code, user.email)
+        else:
+            logger.error("Failed to send password reset email to %s via Resend", user.email)
+            raise Exception("Failed to send email via Resend")
     except Exception:
         logger.exception("Failed to send password reset email to %s", user.email)
         raise

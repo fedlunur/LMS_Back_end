@@ -4,11 +4,11 @@ from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
 
 from user_managment.models import EmailVerificationToken, User
+from lms_project.resend_email import send_email as send_resend_email
 
 logger = logging.getLogger(__name__)
 
@@ -53,32 +53,21 @@ def send_email_verification(user: User, *, extra_context: Optional[dict] = None)
     token = create_email_verification_token(user)
 
     context = _build_email_context(user, token, extra_context)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
 
     try:
-        text_body = render_to_string("user_managment/emails/email_verification.txt", context)
-    except Exception:
-        logger.debug("Plain-text email verification template missing; falling back to generated text.")
-        text_body = (
-            f"Hello {context.get('first_name') or user.email},\n\n"
-            f"Your email verification code is {token.code}. This code will expire in "
-            f"{DEFAULT_EXPIRY_MINUTES} minutes.\n\n"
-            f"Thank you,\n{context.get('project_name')}"
+        success = send_resend_email(
+            subject=EMAIL_SUBJECT,
+            to_email=user.email,
+            html_template="user_managment/emails/email_verification.html",
+            txt_template="user_managment/emails/email_verification.txt",
+            context=context,
         )
-
-    html_body = render_to_string("user_managment/emails/email_verification.html", context)
-
-    email_message = EmailMultiAlternatives(
-        subject=EMAIL_SUBJECT,
-        body=text_body,
-        from_email=from_email,
-        to=[user.email],
-    )
-    email_message.attach_alternative(html_body, "text/html")
-
-    try:
-        email_message.send()
-        logger.info("Email verification code %s sent to %s", token.code, user.email)
+        
+        if success:
+            logger.info("Email verification code %s sent to %s via Resend", token.code, user.email)
+        else:
+            logger.error("Failed to send email verification email to %s via Resend", user.email)
+            raise Exception("Failed to send email via Resend")
     except Exception:
         logger.exception("Failed to send email verification email to %s", user.email)
         raise
