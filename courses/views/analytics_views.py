@@ -18,6 +18,8 @@ from courses.services.analytics_service import (
 	compute_teacher_recent_student_activity,
 	compute_teacher_course_performance,
 	compute_teacher_content_engagement,
+	compute_teacher_recent_assignments,
+	compute_teacher_quiz_analytics,
 )
 
 
@@ -198,6 +200,48 @@ def get_teacher_content_engagement_view(request):
 			"success": True,
 			"data": items,
 			"message": "Content engagement metrics retrieved successfully."
+		},
+		status=status.HTTP_200_OK,
+	)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_recent_assignments_view(request):
+	if not _is_instructor(request.user):
+		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
+	try:
+		limit_param = request.query_params.get("limit")
+		limit = int(limit_param) if limit_param else 10
+	except Exception:
+		limit = 10
+	items = compute_teacher_recent_assignments(request.user, limit=limit)
+	return Response(
+		{
+			"success": True,
+			"data": items,
+			"message": "Recent assignments analytics retrieved successfully."
+		},
+		status=status.HTTP_200_OK,
+	)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_quiz_analytics_view(request):
+	if not _is_instructor(request.user):
+		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
+	try:
+		limit_param = request.query_params.get("limit")
+		limit = int(limit_param) if limit_param else 10
+	except Exception:
+		limit = 10
+	items = compute_teacher_quiz_analytics(request.user, limit=limit)
+	return Response(
+		{
+			"success": True,
+			"data": items,
+			"message": "Quiz analytics retrieved successfully."
 		},
 		status=status.HTTP_200_OK,
 	)

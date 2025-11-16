@@ -289,6 +289,137 @@ def compute_teacher_content_engagement(instructor, limit: int = 10):
 	return items[:limit]
 
 
+def compute_teacher_recent_assignments(instructor, limit: int = 10):
+	"""
+	Recent assignments analytics for an instructor:
+	- assignment_title: lesson title
+	- course_title: course name
+	- completion_rate: percentage of enrolled students who submitted
+	- submitted_count: number of students who submitted
+	- total_students: total enrolled students who should submit
+	"""
+	course_ids = list(Course.objects.filter(instructor=instructor).values_list('id', flat=True))
+	if not course_ids:
+		return []
+	
+	# Get all assignment lessons for instructor's courses
+	assignment_lessons = Lesson.objects.filter(
+		course_id__in=course_ids,
+		content_type=Lesson.ContentType.ASSIGNMENT
+	).select_related('course', 'assignment').prefetch_related('course__enrollments')
+	
+	items = []
+	for lesson in assignment_lessons:
+		# Get enrolled students for this course (who should submit)
+		enrollments = Enrollment.objects.filter(
+			course=lesson.course,
+			payment_status='completed',
+			is_enrolled=True
+		)
+		total_students = enrollments.count()
+		
+		# Count actual submissions (submitted, graded, or returned status)
+		submissions = AssignmentSubmission.objects.filter(
+			lesson=lesson,
+			status__in=['submitted', 'graded', 'returned']
+		)
+		submitted_count = submissions.values('student_id').distinct().count()
+		
+		# Calculate completion rate
+		completion_rate = round((submitted_count / total_students) * 100.0, 1) if total_students > 0 else 0.0
+		
+		items.append({
+			"assignment_id": lesson.id,
+			"assignment_title": lesson.title,
+			"course_title": lesson.course.title,
+			"completion_rate": completion_rate,
+			"submitted_count": submitted_count,
+			"total_students": total_students,
+		})
+	
+	# Sort by submitted_count desc, then by completion_rate desc
+	items.sort(key=lambda x: (x["submitted_count"], x["completion_rate"]), reverse=True)
+	return items[:limit]
+
+
+def compute_teacher_quiz_analytics(instructor, limit: int = 10):
+	"""
+	Quiz analytics for an instructor:
+	- quiz_title: lesson title
+	- course_title: course name
+	- avg_attempts: average number of attempts per student
+	- avg_score: average score percentage across all completed attempts
+	- avg_time_seconds: average time taken in seconds across all completed attempts
+	"""
+	course_ids = list(Course.objects.filter(instructor=instructor).values_list('id', flat=True))
+	if not course_ids:
+		return []
+	
+	# Get all quiz lessons for instructor's courses
+	quiz_lessons = Lesson.objects.filter(
+		course_id__in=course_ids,
+		content_type=Lesson.ContentType.QUIZ
+	).select_related('course')
+	
+	items = []
+	for lesson in quiz_lessons:
+		# Get all completed quiz attempts for this lesson
+		attempts = QuizAttempt.objects.filter(
+			lesson=lesson,
+			is_in_progress=False
+		)
+		
+		if not attempts.exists():
+			continue
+		
+		# Calculate average attempts per student
+		attempts_per_student = attempts.values('student_id').annotate(
+			attempt_count=Count('id')
+		)
+		total_students = attempts_per_student.count()
+		if total_students > 0:
+			total_attempts = sum(row['attempt_count'] for row in attempts_per_student)
+			avg_attempts = round(total_attempts / total_students, 1)
+		else:
+			avg_attempts = 0.0
+		
+		# Calculate average score (percentage)
+		avg_score_result = attempts.aggregate(avg=Avg('score'))
+		avg_score = round(float(avg_score_result.get('avg') or 0.0), 1)
+		
+		# Calculate average time taken (in seconds)
+		attempts_with_time = attempts.filter(time_taken__isnull=False)
+		avg_time_seconds = 0
+		if attempts_with_time.exists():
+			# Sum all time_taken durations
+			time_total = sum(
+				(attempt.time_taken.total_seconds() for attempt in attempts_with_time),
+				0.0
+			)
+			avg_time_seconds = int(time_total / attempts_with_time.count())
+		else:
+			# Fallback to quiz_config time_limit if available
+			try:
+				if hasattr(lesson, 'quiz_config') and lesson.quiz_config.time_limit:
+					# time_limit is in minutes, convert to seconds
+					avg_time_seconds = int(lesson.quiz_config.time_limit * 60)
+			except Exception:
+				avg_time_seconds = 0
+		
+		items.append({
+			"quiz_id": lesson.id,
+			"quiz_title": lesson.title,
+			"course_title": lesson.course.title,
+			"avg_attempts": avg_attempts,
+			"avg_score": avg_score,
+			"avg_time_seconds": avg_time_seconds,
+		})
+	
+	# Sort by avg_score desc, then by avg_attempts desc
+	items.sort(key=lambda x: (x["avg_score"], x["avg_attempts"]), reverse=True)
+	return items[:limit]
+
+
 def compute_teacher_top_performers(instructor, limit: int = 5):
 	"""
 	Top performers across all courses of this instructor.
