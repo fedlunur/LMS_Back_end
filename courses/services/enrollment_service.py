@@ -1,4 +1,7 @@
+import logging
 from courses.models import Enrollment
+
+logger = logging.getLogger(__name__)
 
 def enroll_user_in_course(user, course):
     """
@@ -24,9 +27,8 @@ def enroll_user_in_course(user, course):
         try:
             from .email_service import send_enrollment_email
             send_enrollment_email(enrollment, is_paid_pending=True)
-        except Exception:
-            # Non-blocking email
-            pass
+        except Exception as e:
+            logger.error(f"Failed to send enrollment pending email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
         return False, "Payment required for this course. Enrollment created with pending payment status."
     
     # Free course: enroll immediately
@@ -47,8 +49,8 @@ def enroll_user_in_course(user, course):
     try:
         from .email_service import send_enrollment_email
         send_enrollment_email(enrollment, is_paid_pending=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to send enrollment confirmed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
     return True, "Successfully enrolled in the course."
 
 
@@ -72,8 +74,8 @@ def complete_payment(enrollment_id):
         try:
             from .email_service import send_payment_completed_email
             send_payment_completed_email(enrollment)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to send payment completed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
         return True, "Payment completed successfully. Enrollment is now active."
     except Enrollment.DoesNotExist:
         return False, "Enrollment not found."
@@ -91,8 +93,8 @@ def fail_payment(enrollment_id, reason: str | None = None):
         try:
             from .email_service import send_payment_failed_email
             send_payment_failed_email(enrollment, reason=reason)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to send payment failed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
         return True, "Payment marked as failed."
     except Enrollment.DoesNotExist:
         return False, "Enrollment not found."

@@ -144,9 +144,11 @@ def _finalize_from_checkout_session(session) -> tuple[bool, str, dict]:
 
     # Activate enrollment
     enrollment = None
+    was_pending = False
     if enrollment_id:
         try:
             enrollment = Enrollment.objects.get(id=enrollment_id)
+            was_pending = enrollment.payment_status != "completed"
             if enrollment.payment_status != "completed":
                 enrollment.payment_status = "completed"
                 enrollment.is_enrolled = True
@@ -162,12 +164,23 @@ def _finalize_from_checkout_session(session) -> tuple[bool, str, dict]:
             course_id=int(course_id),
             defaults={"progress": 0.0, "payment_status": "completed", "is_enrolled": True},
         )
+        was_pending = enrollment.payment_status != "completed"
         if enrollment.payment_status != "completed":
             enrollment.payment_status = "completed"
             enrollment.is_enrolled = True
             enrollment.save(update_fields=["payment_status", "is_enrolled", "updated_at"])
         enrollment.unlock_first_module()
         enrollment.calculate_progress()
+    
+    # Send payment confirmation email
+    if enrollment and was_pending:
+        try:
+            from courses.services.email_service import send_payment_completed_email
+            send_payment_completed_email(enrollment)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send payment confirmation email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
 
     context = {
         "enrollment_id": getattr(enrollment, "id", None),
@@ -258,11 +271,21 @@ def stripe_webhook_view(request):
         if enrollment_id:
             enrollment = Enrollment.objects.filter(id=enrollment_id).first()
             if enrollment:
+                was_pending = enrollment.payment_status != "completed"
                 enrollment.payment_status = "completed"
                 enrollment.is_enrolled = True
                 enrollment.save(update_fields=["payment_status", "is_enrolled", "updated_at"])
                 enrollment.unlock_first_module()
                 enrollment.calculate_progress()
+                # Send payment confirmation email
+                if was_pending:
+                    try:
+                        from courses.services.email_service import send_payment_completed_email
+                        send_payment_completed_email(enrollment)
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to send payment confirmation email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
 
     elif event_type in {"payment_intent.payment_failed"}:
         pi_id = obj.get("id", "")
@@ -270,13 +293,37 @@ def stripe_webhook_view(request):
         if payment:
             payment.mark_failed()
             if payment.enrollment_id:
-                Enrollment.objects.filter(id=payment.enrollment_id).update(payment_status="failed")
+                enrollment = Enrollment.objects.filter(id=payment.enrollment_id).first()
+                if enrollment:
+                    enrollment.payment_status = "failed"
+                    enrollment.is_enrolled = False
+                    enrollment.save(update_fields=["payment_status", "is_enrolled", "updated_at"])
+                    # Send payment failed email
+                    try:
+                        from courses.services.email_service import send_payment_failed_email
+                        send_payment_failed_email(enrollment, reason="Payment failed")
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to send payment failed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
 
     elif event_type in {"checkout.session.expired"}:
         payment = Payment.objects.filter(stripe_checkout_session_id=obj.get("id")).first()
         if payment:
             payment.mark_canceled()
             if payment.enrollment_id:
-                Enrollment.objects.filter(id=payment.enrollment_id).update(payment_status="failed")
+                enrollment = Enrollment.objects.filter(id=payment.enrollment_id).first()
+                if enrollment:
+                    enrollment.payment_status = "failed"
+                    enrollment.is_enrolled = False
+                    enrollment.save(update_fields=["payment_status", "is_enrolled", "updated_at"])
+                    # Send payment failed email
+                    try:
+                        from courses.services.email_service import send_payment_failed_email
+                        send_payment_failed_email(enrollment, reason="Payment session expired")
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to send payment failed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
 
     return HttpResponse(status=200)

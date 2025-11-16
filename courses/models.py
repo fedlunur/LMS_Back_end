@@ -875,8 +875,10 @@ class Enrollment(models.Model):
             if not was_completed and self.is_completed:
                 from courses.services.email_service import send_course_completed_email
                 send_course_completed_email(self)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send course completed email for enrollment {self.id}: {str(e)}", exc_info=True)
         return self.progress
     
     def unlock_first_module(self):

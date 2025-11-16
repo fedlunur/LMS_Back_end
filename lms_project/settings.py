@@ -294,8 +294,26 @@ STRIPE_SUCCESS_PATH = os.getenv('STRIPE_SUCCESS_PATH', '/payment/success')
 STRIPE_CANCEL_PATH = os.getenv('STRIPE_CANCEL_PATH', '/payment/cancel')
 
 
-# Email configuration - Using Resend API
+# Email configuration - Using Resend API with SMTP fallback
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+
+# Initialize Resend API key
+try:
+    import resend
+    if RESEND_API_KEY:
+        resend.api_key = RESEND_API_KEY
+except ImportError:
+    # Resend package not installed - will be handled in email service
+    pass
+
+# SMTP Configuration (used as fallback when Resend fails)
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
 
 # Email / verification defaults
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@emerald.edu.et")
