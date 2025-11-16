@@ -579,3 +579,121 @@ def get_teacher_dashboard_summary_view(request):
         "data": payload,
         "message": "Instructor KPI summary retrieved successfully."
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_courses_enrollments_view(request):
+    """
+    For the authenticated instructor, return all their courses with lists of enrolled students.
+    Each course includes enrolled students (completed payments) with basic info and progress.
+    """
+    # Only instructors (role.name == 'teacher') or staff can access
+    if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+        return Response({
+            "success": False,
+            "message": "You are not authorized to access instructor enrollments."
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    instructor = request.user
+
+    courses = Course.objects.filter(instructor=instructor).order_by('-created_at')
+
+    result = []
+    for course in courses:
+        enrollments = Enrollment.objects.filter(
+            course=course,
+            payment_status='completed',
+            is_enrolled=True
+        ).select_related('student').order_by('-enrolled_at')
+
+        students = []
+        for e in enrollments:
+            students.append({
+                "student_id": e.student.id,
+                "name": e.student.get_full_name() or e.student.email,
+                "email": e.student.email,
+                "progress_pct": float(e.progress),
+                "is_completed": e.is_completed,
+                "enrolled_at": e.enrolled_at,
+                "completed_at": e.completed_at
+            })
+
+        # Per-course summary stats
+        total_students = len(students)
+        completed_count = sum(1 for s in students if s["is_completed"])
+        completion_rate = round((completed_count / total_students) * 100.0, 2) if total_students > 0 else 0.0
+        avg_rating = round(course.ratings.aggregate(avg=Avg('rating')).get('avg') or 0.0, 1)
+
+        result.append({
+            "course_id": course.id,
+            "course_title": course.title,
+            "total_students": total_students,
+            "completion_rate": completion_rate,
+            "average_rating": avg_rating,
+            "students": students
+        })
+
+    return Response({
+        "success": True,
+        "data": result,
+        "message": "Instructor courses and enrolled students retrieved successfully."
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_course_enrollments_detail_view(request, course_id):
+    """
+    List enrolled students for a specific course belonging to the authenticated instructor.
+    """
+    # Only instructors (role.name == 'teacher') or staff can access
+    if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+        return Response({
+            "success": False,
+            "message": "You are not authorized to access instructor enrollments."
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return Response({"success": False, "message": "Course not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if course.instructor != request.user and not request.user.is_staff:
+        return Response({"success": False, "message": "You are not authorized to view students for this course."}, status=status.HTTP_403_FORBIDDEN)
+
+    enrollments = Enrollment.objects.filter(
+        course=course,
+        payment_status='completed',
+        is_enrolled=True
+    ).select_related('student').order_by('-enrolled_at')
+
+    students = []
+    for e in enrollments:
+        students.append({
+            "student_id": e.student.id,
+            "name": e.student.get_full_name() or e.student.email,
+            "email": e.student.email,
+            "progress_pct": float(e.progress),
+            "is_completed": e.is_completed,
+            "enrolled_at": e.enrolled_at,
+            "completed_at": e.completed_at
+        })
+
+    total_students = len(students)
+    completed_count = sum(1 for s in students if s["is_completed"])
+    completion_rate = round((completed_count / total_students) * 100.0, 2) if total_students > 0 else 0.0
+    avg_rating = round(course.ratings.aggregate(avg=Avg('rating')).get('avg') or 0.0, 1)
+
+    return Response({
+        "success": True,
+        "data": {
+            "course_id": course.id,
+            "course_title": course.title,
+            "total_students": total_students,
+            "completion_rate": completion_rate,
+            "average_rating": avg_rating,
+            "students": students
+        },
+        "message": "Course enrolled students retrieved successfully."
+    }, status=status.HTTP_200_OK)
