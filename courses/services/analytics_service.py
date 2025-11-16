@@ -8,6 +8,15 @@ def _is_instructor(user):
 	return bool(getattr(user, 'is_staff', False) or (getattr(user, 'role', None) and getattr(user.role, 'name', '').lower() == 'teacher'))
 
 
+def _student_display_name(user):
+	full_name = ""
+	try:
+		full_name = user.get_full_name()
+	except Exception:
+		full_name = ""
+	return full_name or getattr(user, "username", None) or getattr(user, "email", "") or f"User {getattr(user, 'id', '')}"
+
+
 def compute_teacher_earnings_overview(instructor):
 	now = timezone.now()
 	start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -191,6 +200,77 @@ def compute_teacher_dashboard_overview(instructor, course_id: int | None = None)
 		})
 	return data
 
+
+def compute_teacher_top_performers(instructor, limit: int = 5):
+	"""
+	Top performers across all courses of this instructor.
+	- performance_pct: highest enrollment progress across instructor's courses
+	- course_title: the course where the student achieved that highest progress
+	- assignments_count: number of assignment submissions by the student in instructor's courses
+	"""
+	from django.db.models import Prefetch
+
+	# Eligible enrollments
+	enrollments = (
+		Enrollment.objects
+		.filter(
+			course__instructor=instructor,
+			payment_status='completed',
+			is_enrolled=True
+		)
+		.select_related('student', 'course')
+	)
+
+	# Aggregate per student
+	students_map = {}
+	for e in enrollments:
+		stu_id = e.student_id
+		if stu_id not in students_map:
+			students_map[stu_id] = {
+				"student": e.student,
+				"best_progress": float(e.progress or 0.0),
+				"best_course": e.course,
+			}
+		else:
+			cur_best = students_map[stu_id]["best_progress"]
+			progress_val = float(e.progress or 0.0)
+			if progress_val > cur_best:
+				students_map[stu_id]["best_progress"] = progress_val
+				students_map[stu_id]["best_course"] = e.course
+
+	if not students_map:
+		return []
+
+	# Precompute assignment submission counts per student for this instructor's courses
+	assign_counts = (
+		AssignmentSubmission.objects
+		.filter(lesson__course__instructor=instructor)
+		.values('student_id')
+		.order_by()
+		.annotate(total=Sum(1))  # use Sum(1) as simple count aggregator
+	)
+	student_to_assign_total = {row['student_id']: int(row['total'] or 0) for row in assign_counts}
+
+	# Build and sort
+	items = []
+	for stu_id, data in students_map.items():
+		student = data["student"]
+		best_course = data["best_course"]
+		items.append({
+			"student_id": stu_id,
+			"student_name": _student_display_name(student),
+			"course_title": getattr(best_course, "title", None) or "",
+			"performance_pct": round(float(data["best_progress"]), 1),
+			"assignments_count": student_to_assign_total.get(stu_id, 0),
+		})
+
+	items.sort(key=lambda x: (x["performance_pct"], x["assignments_count"]), reverse=True)
+
+	# Add rank
+	for idx, item in enumerate(items, start=1):
+		item["rank"] = idx
+
+	return items[:limit]
 
 def compute_teacher_recent_activities(instructor):
 	now = timezone.now()
@@ -510,5 +590,62 @@ def compute_teacher_students_overview(instructor):
 		"currency": "USD"
 	}
 	return data
+
+
+def compute_teacher_progress_distribution(instructor):
+	"""
+	Calculate the distribution of student progress across different ranges.
+	Returns counts and percentages for each progress range.
+	"""
+	base_enroll_qs = Enrollment.objects.filter(
+		course__instructor=instructor,
+		payment_status='completed',
+		is_enrolled=True
+	).select_related('student', 'course')
+
+	total_enrollments = base_enroll_qs.count()
+
+	# Initialize ranges
+	ranges = {
+		"90_100": {"min": 90, "max": 100, "label": "90-100%", "count": 0},
+		"80_89": {"min": 80, "max": 89, "label": "80-89%", "count": 0},
+		"70_79": {"min": 70, "max": 79, "label": "70-79%", "count": 0},
+		"60_69": {"min": 60, "max": 69, "label": "60-69%", "count": 0},
+		"below_60": {"min": 0, "max": 59, "label": "Below 60%", "count": 0},
+	}
+
+	# Count enrollments in each range
+	for enrollment in base_enroll_qs:
+		progress = float(enrollment.progress)
+		if 90 <= progress <= 100:
+			ranges["90_100"]["count"] += 1
+		elif 80 <= progress <= 89:
+			ranges["80_89"]["count"] += 1
+		elif 70 <= progress <= 79:
+			ranges["70_79"]["count"] += 1
+		elif 60 <= progress <= 69:
+			ranges["60_69"]["count"] += 1
+		else:
+			ranges["below_60"]["count"] += 1
+
+	# Format response with counts and percentages
+	result = []
+	for key in ["90_100", "80_89", "70_79", "60_69", "below_60"]:
+		range_data = ranges[key]
+		count = range_data["count"]
+		percentage = round((count / total_enrollments) * 100.0, 1) if total_enrollments > 0 else 0.0
+		
+		result.append({
+			"range_label": range_data["label"],
+			"range_min": range_data["min"],
+			"range_max": range_data["max"],
+			"students_count": count,
+			"percentage_of_total": percentage
+		})
+
+	return {
+		"total_students": total_enrollments,
+		"distribution": result
+	}
 
 

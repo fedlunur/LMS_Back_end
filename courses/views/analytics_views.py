@@ -5,6 +5,8 @@ from rest_framework import status
 
 from courses.services.analytics_service import (
 	_is_instructor,
+	compute_teacher_top_performers,
+	compute_teacher_progress_distribution,
 	compute_teacher_earnings_overview,
 	compute_teacher_revenue_history,
 	compute_teacher_monthly_revenue_trend,
@@ -86,5 +88,28 @@ def get_teacher_students_overview_view(request):
 		return Response({"success": False, "message": "You are not authorized to access instructor students overview."}, status=status.HTTP_403_FORBIDDEN)
 	data = compute_teacher_students_overview(request.user)
 	return Response({"success": True, "data": data, "message": "Instructor analytics metrics retrieved successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_top_performers_view(request):
+	if not _is_instructor(request.user):
+		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
+	try:
+		limit_param = request.query_params.get("limit")
+		limit = int(limit_param) if limit_param else 5
+	except Exception:
+		limit = 5
+	items = compute_teacher_top_performers(request.user, limit=limit)
+	return Response({"success": True, "data": items, "message": "Top performers retrieved successfully."}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_progress_distribution_view(request):
+	if not _is_instructor(request.user):
+		return Response({"success": False, "message": "You are not authorized to access instructor analytics."}, status=status.HTTP_403_FORBIDDEN)
+	data = compute_teacher_progress_distribution(request.user)
+	return Response({"success": True, "data": data, "message": "Progress distribution retrieved successfully."}, status=status.HTTP_200_OK)
 
 
