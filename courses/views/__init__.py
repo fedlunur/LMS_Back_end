@@ -11,6 +11,7 @@ from .student_views import *
 from .content_views import *
 from .rating_views import *
 from .certificate_views import *
+from .events_views import *
 
 __all__ = [
     'GenericModelViewSet',

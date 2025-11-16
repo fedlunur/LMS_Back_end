@@ -1646,3 +1646,30 @@ class AssessmentResponse(models.Model):
         return f"{self.attempt.student.email} - {self.question.question_text[:50]}"
 
     
+
+class Event(models.Model):
+    EVENT_TYPES = (
+        ('live_session', 'Live Session'),
+        ('deadline', 'Assignment Deadline'),
+        ('qa_session', 'Student Q&A Session'),
+        ('meeting', 'Course Review Meeting'),
+        ('general', 'General Event'),
+    )
+
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='events', null=True, blank=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    event_type = models.CharField(max_length=50, choices=EVENT_TYPES, default='general')
+
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['start_datetime']
+        verbose_name_plural = "Events"
+
+    def __str__(self):
+        return f"{self.title} - {self.start_datetime}"
