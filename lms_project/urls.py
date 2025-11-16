@@ -23,6 +23,9 @@ from courses.views import (
     get_course_progress_view,
     get_student_analytics_view,
     get_quiz_results_view,
+    get_teacher_dashboard_overview_view,
+    get_teacher_recent_activities_view,
+    get_teacher_dashboard_summary_view,
     get_course_students_view,
     get_student_progress_view,
     get_assignment_submissions_view,
@@ -166,6 +169,9 @@ urlpatterns = [
     re_path(r'^api/student-analytics/$', get_student_analytics_view, name='student_analytics'),
     
     # Teacher/Instructor endpoints
+    re_path(r'^api/teacher/dashboard/overview/?$', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview'),
+    re_path(r'^api/teacher/dashboard/activities/?$', get_teacher_recent_activities_view, name='teacher_recent_activities'),
+    re_path(r'^api/teacher/dashboard/summary/?$', get_teacher_dashboard_summary_view, name='teacher_dashboard_summary'),
     re_path(r'^api/course-students/(?P<course_id>\d+)/$', get_course_students_view, name='course_students'),
     re_path(r'^api/student-progress/(?P<course_id>\d+)/(?P<student_id>\d+)/$', get_student_progress_view, name='student_progress'),
     re_path(r'^api/assignment-submissions/(?P<lesson_id>\d+)/$', get_assignment_submissions_view, name='assignment_submissions'),

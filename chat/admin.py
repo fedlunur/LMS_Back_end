@@ -42,7 +42,7 @@ class ChatMessageAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {
-            'fields': ('room', 'sender', 'content')
+            'fields': ('room', 'sender', 'content', 'file','is_read', 'read_at', 'reply_to')
         }),
         ('Timestamp', {
             'fields': ('timestamp',)
