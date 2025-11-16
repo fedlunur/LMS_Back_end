@@ -181,11 +181,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             # If file_id is provided, get the existing message (file was already uploaded via API)
             if file_id:
-                existing_message = await self.get_message_by_id(file_id, sender_id_int)
+                try:
+                    file_id_int = int(file_id)
+                except (ValueError, TypeError):
+                    await self.send(text_data=json.dumps({
+                        'error': 'Invalid file_id format'
+                    }))
+                    return
+                existing_message = await self.get_message_by_id(file_id_int)
                 if existing_message:
                     # Update the existing message with reply_to if provided
                     if reply_to_id:
-                        await self.update_message_reply_to(file_id, reply_to_id_int)
+                        await self.update_message_reply_to(file_id_int, reply_to_id_int)
                     
                     # Broadcast the existing message
                     sender_name = await self.get_sender_name_from_id(sender_id_int)
@@ -377,14 +384,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return "Unknown User"
     #
     @database_sync_to_async
-    def get_message_by_id(self, message_id, sender_id):
-        """Get an existing message by ID."""
+    def get_message_by_id(self, message_id):
+        """Get an existing message by ID within the current room."""
         ChatMessage = apps.get_model('chat', 'ChatMessage')
         ChatRoom = apps.get_model('chat', 'ChatRoom')
         
         try:
             room = ChatRoom.objects.get(room_number=self.room_number)
-            msg = ChatMessage.objects.get(id=message_id, sender_id=sender_id, room=room)
+            msg = ChatMessage.objects.get(id=message_id, room=room)
             return {
                 'id': msg.id,
                 'content': msg.content,

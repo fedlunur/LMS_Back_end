@@ -333,9 +333,9 @@ CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': 'redis://redis:6379/1',  # Use DB 1 for cache (DB 0 for channels)
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        },
+        # Note: Django's built-in Redis cache doesn't use CLIENT_CLASS
+        # If you need CLIENT_CLASS, use django-redis package instead:
+        # 'BACKEND': 'django_redis.cache.RedisCache',
         'KEY_PREFIX': 'lms',
         'TIMEOUT': 300,  # Default timeout 5 minutes
     }

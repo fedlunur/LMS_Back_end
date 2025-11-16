@@ -390,6 +390,7 @@ class UploadChatFileAPIView(APIView):
         
         return Response({
             "message_id": message.id,
+            "file_id": message.id,  # Alias for clarity when using via WebSocket
             "file_url": message.file.url,
             "file_name": message.file_name,
             "file_size": message.file_size,
