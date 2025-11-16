@@ -230,7 +230,7 @@ def get_teacher_dashboard_overview_view(request):
     data = []
     for course in courses:
         enroll_qs = course.enrollments.filter(payment_status='completed', is_enrolled=True)
-        total_students = enroll_qs.count()
+        total_students = enroll_qs.values('student_id').distinct().count()
         completed_count = enroll_qs.filter(is_completed=True).count()
         completion_rate = round((completed_count / total_students) * 100, 2) if total_students > 0 else 0.0
         avg_rating = round(course.ratings.aggregate(avg=Avg('rating')).get('avg') or 0.0, 1)
@@ -250,6 +250,129 @@ def get_teacher_dashboard_overview_view(request):
     }, status=status.HTTP_200_OK)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_teacher_students_overview_view(request):
+    """
+    Overall students and analytics across all courses created by the instructor.
+    Returns:
+    - metrics: total_students, active_students (last 30d), avg_performance(progress), total_views, completion_rate, avg_session_hours, avg_rating, revenue_total
+    - students: list of distinct students with aggregates (courses_count, avg_progress, last_accessed, is_active)
+    """
+    # Only instructors (role.name == 'teacher') or staff can access
+    if not (getattr(request.user, 'is_staff', False) or (getattr(request.user, 'role', None) and getattr(request.user.role, 'name', '').lower() == 'teacher')):
+        return Response({
+            "success": False,
+            "message": "You are not authorized to access instructor students overview."
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    instructor = request.user
+    now = timezone.now()
+    last_30_days = now - timezone.timedelta(days=30)
+
+    # Base enrollments for this instructor
+    base_enroll_qs = Enrollment.objects.filter(
+        course__instructor=instructor,
+        payment_status='completed',
+        is_enrolled=True
+    ).select_related('student', 'course')
+
+    # Distinct students
+    total_students = base_enroll_qs.values('student_id').distinct().count()
+
+    # Active students (last 30 days)
+    active_students = base_enroll_qs.filter(last_accessed__gte=last_30_days).values('student_id').distinct().count()
+
+    # Average performance (average enrollment progress)
+    avg_progress_val = base_enroll_qs.aggregate(avg=Avg('progress')).get('avg') or 0.0
+    avg_performance = round(float(avg_progress_val), 1)
+
+    # Total views across lessons (use LessonProgress rows as views proxy)
+    lesson_progress_qs = LessonProgress.objects.filter(enrollment__in=base_enroll_qs)
+    total_views = lesson_progress_qs.count()
+
+    # Completion rate overall
+    total_enrollments = base_enroll_qs.count()
+    completed_count = base_enroll_qs.filter(is_completed=True).count()
+    completion_rate = round((completed_count / total_enrollments) * 100.0, 1) if total_enrollments > 0 else 0.0
+
+    # Average session length (average time_spent across lesson progress entries with time data)
+    time_total = lesson_progress_qs.aggregate(total=Sum('time_spent')).get('total')
+    sessions_with_time = lesson_progress_qs.filter(time_spent__isnull=False).count()
+    avg_session_hours = 0.0
+    if time_total and sessions_with_time > 0:
+        total_seconds = time_total.total_seconds()
+        avg_seconds = total_seconds / sessions_with_time
+        avg_session_hours = round(avg_seconds / 3600.0, 1)
+
+    # Average rating across teacher's courses
+    avg_rating_val = CourseRating.objects.filter(
+        course__instructor=instructor,
+        is_public=True,
+        is_approved=True
+    ).aggregate(avg=Avg('rating')).get('avg') or 0.0
+    avg_rating = round(float(avg_rating_val), 1)
+
+    # Revenue overview (sum of course price over all completed enrollments)
+    revenue_total_val = base_enroll_qs.aggregate(total=Sum('course__price')).get('total') or 0
+    revenue_total = round(float(revenue_total_val), 2)
+
+    # Build student list with aggregates
+    students_map = {}
+    # Preload last_accessed and progress per enrollment then roll-up per student
+    for e in base_enroll_qs.order_by('-last_accessed'):
+        sid = e.student_id
+        if sid not in students_map:
+            students_map[sid] = {
+                "student_id": sid,
+                "name": e.student.get_full_name() or e.student.email,
+                "email": e.student.email,
+                "courses_count": 0,
+                "avg_progress": 0.0,
+                "last_accessed": e.last_accessed,
+                "is_active": e.last_accessed and e.last_accessed >= last_30_days,
+                "_progress_sum": 0.0
+            }
+        entry = students_map[sid]
+        entry["courses_count"] += 1
+        entry["_progress_sum"] += float(e.progress)
+        # Keep max last_accessed
+        if e.last_accessed and (entry["last_accessed"] is None or e.last_accessed > entry["last_accessed"]):
+            entry["last_accessed"] = e.last_accessed
+            entry["is_active"] = e.last_accessed >= last_30_days
+
+    # Finalize avg_progress
+    students = []
+    for sid, entry in students_map.items():
+        if entry["courses_count"] > 0:
+            entry["avg_progress"] = round(entry["_progress_sum"] / entry["courses_count"], 1)
+        del entry["_progress_sum"]
+        students.append(entry)
+
+    # Sort students by last_accessed desc
+    students.sort(key=lambda s: (s["last_accessed"] or timezone.datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+
+    data = {
+        "metrics": {
+            "total_enrollments": total_enrollments,
+            "total_students": total_students,
+            "active_students": active_students,
+            "avg_performance": avg_performance,  # percentage 0-100
+            "total_views": total_views,
+            "completion_rate": completion_rate,   # percentage 0-100
+            "avg_session_hours": avg_session_hours,
+            "avg_rating": avg_rating,
+            "revenue_total": revenue_total,
+            "currency": "USD"
+        },
+        "students": students
+    }
+
+    return Response({
+        "success": True,
+        "data": data,
+        "message": "Instructor students and analytics overview retrieved successfully."
+    }, status=status.HTTP_200_OK)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_teacher_recent_activities_view(request):
