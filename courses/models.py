@@ -119,13 +119,28 @@ class Course(models.Model):
 
     @property
     def total_duration(self):
-        total = sum(
-            (lesson.duration for lesson in self.lessons.all() if lesson.duration),
-            timedelta(),
-        )
-        total_minutes = int(total.total_seconds() // 60)
+        """
+        Human-readable total estimated duration for this course, based on
+        per-lesson estimated duration rules (video/quiz/article).
+        """
+        total_seconds = self.total_duration_seconds
+        total_minutes = int(total_seconds // 60)
         hours, minutes = divmod(total_minutes, 60)
         return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+    @property
+    def total_duration_seconds(self) -> int:
+        """
+        Numeric total estimated duration for this course in seconds,
+        using the unified per-lesson estimation logic.
+        """
+        total_seconds = 0
+        for lesson in self.lessons.all():
+            try:
+                total_seconds += int(getattr(lesson, "estimated_duration_seconds", 0) or 0)
+            except Exception:
+                continue
+        return total_seconds
 
     @property
     def average_rating(self):
@@ -228,6 +243,47 @@ class Lesson(models.Model):
             questions = QuizQuestion.objects.filter(lesson=self)
             return sum(q.points for q in questions)
         return 0
+
+    @property
+    def estimated_duration_seconds(self) -> int:
+        """
+        Estimated time to complete this lesson, in seconds, using unified rules:
+        - Video: use VideoLesson.duration
+        - Quiz: use QuizConfiguration.time_limit (minutes)
+        - Article: use ArticleLesson.estimated_read_time (minutes)
+        - Assignment or others: 0 (no fixed time)
+        """
+        # Video lesson
+        try:
+            if self.content_type == Lesson.ContentType.VIDEO and hasattr(self, "video") and self.video.duration:
+                return int(self.video.duration.total_seconds())
+        except Exception:
+            pass
+
+        # Quiz lesson
+        try:
+            if self.content_type == Lesson.ContentType.QUIZ and hasattr(self, "quiz_config") and self.quiz_config.time_limit:
+                return int(self.quiz_config.time_limit * 60)
+        except Exception:
+            pass
+
+        # Article lesson
+        try:
+            if self.content_type == Lesson.ContentType.ARTICLE and hasattr(self, "article") and self.article.estimated_read_time:
+                return int(self.article.estimated_read_time * 60)
+        except Exception:
+            pass
+
+        # Assignment or unknown types: no reliable estimate
+        return 0
+
+    @property
+    def estimated_duration(self):
+        """
+        Estimated duration as a timedelta, derived from estimated_duration_seconds.
+        """
+        seconds = self.estimated_duration_seconds
+        return timedelta(seconds=seconds) if seconds > 0 else timedelta()
 
 
 # ---------------------------------------------------------------------------

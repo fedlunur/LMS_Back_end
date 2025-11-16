@@ -1,7 +1,7 @@
 from django.utils import timezone
-from django.db.models import Avg, Sum
+from django.db.models import Avg, Sum, Count, Q
 
-from courses.models import Course, Enrollment, LessonProgress, AssignmentSubmission, CourseQA, QuizAttempt, AssignmentLesson, LessonResource, CourseResource
+from courses.models import Course, Lesson, Enrollment, LessonProgress, AssignmentSubmission, CourseQA, QuizAttempt, AssignmentLesson, LessonResource, CourseResource
 
 
 def _is_instructor(user):
@@ -201,6 +201,92 @@ def compute_teacher_dashboard_overview(instructor, course_id: int | None = None)
 			"average_rating": avg_rating,
 		})
 	return data
+
+
+def compute_teacher_course_performance(instructor):
+	"""
+	Per-course performance metrics for an instructor:
+	- average_rating
+	- students (completed & paid enrollments)
+	- completion_rate
+	- revenue (sum of course price for completed, enrolled enrollments)
+	"""
+	courses = Course.objects.filter(instructor=instructor).prefetch_related('enrollments', 'ratings')
+	items = []
+	for course in courses:
+		enroll_qs = course.enrollments.filter(payment_status='completed', is_enrolled=True)
+		students = enroll_qs.values('student_id').distinct().count()
+		completed_count = enroll_qs.filter(is_completed=True).count()
+		completion_rate = round((completed_count / students) * 100, 2) if students > 0 else 0.0
+		avg_rating = round(course.ratings.aggregate(avg=Avg('rating')).get('avg') or 0.0, 1)
+		revenue_val = enroll_qs.aggregate(total=Sum('course__price')).get('total') or 0
+		items.append({
+			"course_id": course.id,
+			"course_title": course.title,
+			"average_rating": avg_rating,
+			"students": students,
+			"completion_rate": completion_rate,
+			"revenue": round(float(revenue_val), 2),
+			"currency": "USD",
+		})
+
+	# Sort by revenue descending, then by students
+	items.sort(key=lambda x: (x["revenue"], x["students"]), reverse=True)
+	return items
+
+
+def compute_teacher_content_engagement(instructor, limit: int = 10):
+	"""
+	Course-level content engagement metrics for an instructor:
+	- views: total number of LessonProgress rows across all lessons in the course
+	- engagement_rate: percentage of LessonProgress rows that are completed
+	- avg_time_seconds: total course duration in seconds (from Course.total_duration_seconds)
+	"""
+	course_qs = Course.objects.filter(instructor=instructor)
+	lesson_qs = Lesson.objects.filter(course__in=course_qs)
+	
+	# Aggregate LessonProgress by course
+	lp_qs = (
+		LessonProgress.objects
+		.filter(lesson__in=lesson_qs)
+		.values('lesson__course_id')
+		.annotate(
+			views=Count('id'),
+			completed_count=Count('id', filter=Q(completed=True)),
+		)
+	)
+
+	# Map course_id -> course for title
+	course_map = {
+		c.id: c
+		for c in course_qs
+	}
+
+	items = []
+	for row in lp_qs:
+		course_id = row['lesson__course_id']
+		course = course_map.get(course_id)
+		if not course:
+			continue
+
+		views = int(row['views'] or 0)
+		completed_count = int(row.get('completed_count') or 0)
+		engagement_rate = round((completed_count / views) * 100.0, 1) if views > 0 else 0.0
+
+		# Use course's total_duration_seconds
+		avg_time_seconds = int(getattr(course, "total_duration_seconds", 0) or 0)
+
+		items.append({
+			"course_id": course_id,
+			"course_title": course.title,
+			"views": views,
+			"engagement_rate": engagement_rate,
+			"avg_time_seconds": avg_time_seconds,
+		})
+
+	# Sort by views desc, then engagement rate desc
+	items.sort(key=lambda x: (x["views"], x["engagement_rate"]), reverse=True)
+	return items[:limit]
 
 
 def compute_teacher_top_performers(instructor, limit: int = 5):
