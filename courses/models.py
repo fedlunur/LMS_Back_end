@@ -138,6 +138,21 @@ class Course(models.Model):
     def total_reviews(self):
         return self.ratings.count()
 
+    @property
+    def total_enrollments(self):
+        """
+        Number of students enrolled in this course.
+        Prefers an annotated value when present to avoid N+1 queries.
+        Counts only active enrollments with completed payment.
+        """
+        annotated_value = getattr(self, "_total_enrollments", None) or getattr(self, "total_enrollments_cache", None)
+        if annotated_value is not None:
+            return int(annotated_value)
+        try:
+            return self.enrollments.filter(payment_status="completed", is_enrolled=True).count()
+        except Exception:
+            # Be defensive if related manager is unavailable during migrations/shell ops
+            return 0
 
 # ---------------------------------------------------------------------------
 # Course Structure

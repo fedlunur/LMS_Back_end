@@ -6,6 +6,7 @@ from .assignment_views import *
 from .assessment_views import *
 from .progress_views import *
 from .instructor_views import *
+from .analytics_views import *
 from .student_views import *
 from .content_views import *
 from .rating_views import *

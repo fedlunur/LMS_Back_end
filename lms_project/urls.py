@@ -28,6 +28,7 @@ from courses.views import (
     get_teacher_dashboard_summary_view,
     get_teacher_course_enrollments_detail_view,
     get_teacher_students_overview_view,
+    get_teacher_students_list_view,
     get_course_students_view,
     get_student_progress_view,
     get_assignment_submissions_view,
@@ -45,11 +46,15 @@ from courses.views import (
     get_quiz_analytics_view,
     get_all_student_attempts_view,
 )
-from courses.views.instructor_views import (
+from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
     get_teacher_revenue_history_view,
     get_teacher_monthly_revenue_trend_view,
     get_teacher_student_engagement_metrics_view,
+    get_teacher_dashboard_overview_view,
+    get_teacher_recent_activities_view,
+    get_teacher_dashboard_summary_view,
+    get_teacher_students_overview_view,
 )
 from courses.constants import *
 from django.urls import path, include
@@ -178,10 +183,13 @@ urlpatterns = [
     
     # Teacher/Instructor endpoints
     re_path(r'^api/teacher/dashboard/overview/?$', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview'),
+    re_path(r'^api/teacher/dashboard/overview/(?P<course_id>\d+)/?$', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview_by_course'),
+    path('api/teacher/dashboard/overview/<int:course_id>/', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview_by_course_path'),
     re_path(r'^api/teacher/dashboard/activities/?$', get_teacher_recent_activities_view, name='teacher_recent_activities'),
     re_path(r'^api/teacher/dashboard/summary/?$', get_teacher_dashboard_summary_view, name='teacher_dashboard_summary'),
     re_path(r'^api/teacher/courses/enrollments/(?P<course_id>\d+)/?$', get_teacher_course_enrollments_detail_view, name='teacher_course_enrollments_detail'),
     re_path(r'^api/teacher/students/overview/?$', get_teacher_students_overview_view, name='teacher_students_overview'),
+    re_path(r'^api/teacher/students/list/?$', get_teacher_students_list_view, name='teacher_students_list'),
     re_path(r'^api/teacher/earnings/overview/?$', get_teacher_earnings_overview_view, name='teacher_earnings_overview'),
     re_path(r'^api/teacher/earnings/revenue-history/?$', get_teacher_revenue_history_view, name='teacher_revenue_history'),
     re_path(r'^api/teacher/analytics/monthly-revenue-trend/?$', get_teacher_monthly_revenue_trend_view, name='teacher_monthly_revenue_trend'),

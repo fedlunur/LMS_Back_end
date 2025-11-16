@@ -43,7 +43,14 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         # Optimize course queries
         if model_name == 'course':
             try:
-                queryset = queryset.select_related('instructor', 'category', 'level')
+                # Select common relations and annotate enrollment counts for efficient serialization
+                queryset = queryset.select_related('instructor', 'category', 'level').annotate(
+                    _total_enrollments=Count(
+                        'enrollments',
+                        filter=Q(enrollments__payment_status='completed', enrollments__is_enrolled=True),
+                        distinct=True,
+                    )
+                )
             except Exception:
                 pass
 
