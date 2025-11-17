@@ -208,6 +208,15 @@ def grade_assignment_view(request, submission_id):
         submission.graded_at = timezone.now()
         submission.save()
         
+        # Send assignment graded notification
+        try:
+            from courses.services.notification_service import send_assignment_graded_notification
+            send_assignment_graded_notification(submission)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send assignment graded notification for submission {submission.id}: {str(e)}", exc_info=True)
+        
         serializer = DynamicFieldSerializer(submission, model_name="assignmentsubmission")
         
         return Response({

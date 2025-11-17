@@ -29,6 +29,14 @@ def enroll_user_in_course(user, course):
             send_enrollment_email(enrollment, is_paid_pending=True)
         except Exception as e:
             logger.error(f"Failed to send enrollment pending email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+        
+        # Send enrollment pending notification
+        try:
+            from .notification_service import send_enrollment_pending_notification
+            send_enrollment_pending_notification(enrollment)
+        except Exception as e:
+            logger.error(f"Failed to send enrollment pending notification for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+        
         return False, "Payment required for this course. Enrollment created with pending payment status."
     
     # Free course: enroll immediately
@@ -51,6 +59,14 @@ def enroll_user_in_course(user, course):
         send_enrollment_email(enrollment, is_paid_pending=False)
     except Exception as e:
         logger.error(f"Failed to send enrollment confirmed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+    
+    # Send enrollment confirmed notification
+    try:
+        from .notification_service import send_enrollment_confirmed_notification
+        send_enrollment_confirmed_notification(enrollment)
+    except Exception as e:
+        logger.error(f"Failed to send enrollment confirmed notification for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+    
     return True, "Successfully enrolled in the course."
 
 
@@ -76,6 +92,14 @@ def complete_payment(enrollment_id):
             send_payment_completed_email(enrollment)
         except Exception as e:
             logger.error(f"Failed to send payment completed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+        
+        # Send payment completed notification
+        try:
+            from .notification_service import send_payment_completed_notification
+            send_payment_completed_notification(enrollment)
+        except Exception as e:
+            logger.error(f"Failed to send payment completed notification for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+        
         return True, "Payment completed successfully. Enrollment is now active."
     except Enrollment.DoesNotExist:
         return False, "Enrollment not found."
@@ -95,6 +119,14 @@ def fail_payment(enrollment_id, reason: str | None = None):
             send_payment_failed_email(enrollment, reason=reason)
         except Exception as e:
             logger.error(f"Failed to send payment failed email for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+        
+        # Send payment failed notification
+        try:
+            from .notification_service import send_payment_failed_notification
+            send_payment_failed_notification(enrollment, reason=reason)
+        except Exception as e:
+            logger.error(f"Failed to send payment failed notification for enrollment {enrollment.id}: {str(e)}", exc_info=True)
+        
         return True, "Payment marked as failed."
     except Enrollment.DoesNotExist:
         return False, "Enrollment not found."

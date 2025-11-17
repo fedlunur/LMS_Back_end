@@ -475,7 +475,17 @@ def submit_quiz(user, lesson_id, responses, start_time=None):
         passing_score = settings['passing_score']
         if attempt.passed:
             mark_lesson_completed(user, lesson_id)
-        else:
+        
+        # Send quiz graded notification
+        try:
+            from .notification_service import send_quiz_graded_notification
+            send_quiz_graded_notification(attempt)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send quiz graded notification for attempt {attempt.id}: {str(e)}", exc_info=True)
+        
+        if not attempt.passed:
             # Only reset prior lessons if the student has exhausted max attempts
             used_attempts = QuizAttempt.objects.filter(
                 student=user, lesson=lesson, is_in_progress=False

@@ -47,6 +47,13 @@ from courses.views import (
     get_all_student_attempts_view,
     # Event views
     get_student_calendar_view,
+    # Notification views
+    get_notifications_view,
+    get_unread_notifications_view,
+    get_unread_count_view,
+    mark_notification_read_view,
+    mark_all_notifications_read_view,
+    get_notification_view,
 )
 from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
@@ -132,6 +139,7 @@ for name in [
     "assessmentresponse",
     "event",
     "eventtype",
+    "notification",
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 
@@ -251,6 +259,14 @@ urlpatterns = [
     
     # Events - Student calendar endpoint (special formatted view)
     re_path(r'^api/events/calendar/?$', get_student_calendar_view, name='student_calendar'),
+    
+    # Notification endpoints
+    re_path(r'^api/notifications/?$', get_notifications_view, name='get_notifications'),
+    re_path(r'^api/notifications/unread/?$', get_unread_notifications_view, name='get_unread_notifications'),
+    re_path(r'^api/notifications/unread-count/?$', get_unread_count_view, name='get_unread_count'),
+    re_path(r'^api/notifications/(?P<notification_id>\d+)/read/?$', mark_notification_read_view, name='mark_notification_read'),
+    re_path(r'^api/notifications/read-all/?$', mark_all_notifications_read_view, name='mark_all_notifications_read'),
+    re_path(r'^api/notifications/(?P<notification_id>\d+)/?$', get_notification_view, name='get_notification'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

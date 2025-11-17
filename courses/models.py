@@ -22,6 +22,9 @@ from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
 
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+
 from user_managment.models import User
 from .choices import STATUS_CHOICES
 
@@ -879,6 +882,17 @@ class Enrollment(models.Model):
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to send course completed email for enrollment {self.id}: {str(e)}", exc_info=True)
+        
+        # Send course completed notification
+        try:
+            if not was_completed and self.is_completed:
+                from courses.services.notification_service import send_course_completed_notification
+                send_course_completed_notification(self)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send course completed notification for enrollment {self.id}: {str(e)}", exc_info=True)
+        
         return self.progress
     
     def unlock_first_module(self):
@@ -974,10 +988,21 @@ class Certificate(models.Model):
        
         verbose_name_plural = "Certificate"
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
         if not self.certificate_number:
             course_prefix = (self.enrollment.course.title[:3].upper() if len(self.enrollment.course.title) >= 3 else 'CRS')
             self.certificate_number = f"EMR-{course_prefix}-{''.join(random.choices(string.digits, k=8))}"
         super().save(*args, **kwargs)
+        
+        # Send certificate issued notification on creation
+        if is_new:
+            try:
+                from courses.services.notification_service import send_certificate_issued_notification
+                send_certificate_issued_notification(self)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send certificate issued notification for certificate {self.id}: {str(e)}", exc_info=True)
 
     def __str__(self):
         return f"Certificate {self.certificate_number} - {self.enrollment.student.email}"
@@ -1118,8 +1143,45 @@ class CourseAnnouncement(models.Model):
     class Meta:
         ordering = ['-is_pinned', '-published_at', '-created_at']
        
-       
+        
         verbose_name_plural = "Course Announcement"
+    
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        was_published = False
+        if not is_new:
+            try:
+                old_instance = CourseAnnouncement.objects.get(pk=self.pk)
+                was_published = old_instance.is_published
+            except CourseAnnouncement.DoesNotExist:
+                pass
+        
+        # Set published_at if being published for the first time
+        if self.is_published and not self.published_at:
+            from django.utils import timezone
+            self.published_at = timezone.now()
+        
+        super().save(*args, **kwargs)
+        
+        # Send notifications if announcement is published and send_notification is enabled
+        if self.is_published and self.send_notification and (is_new or not was_published):
+            try:
+                from courses.services.notification_service import send_course_announcement_notification
+                from courses.models import Enrollment
+                # Get all enrolled students
+                enrolled_students = Enrollment.objects.filter(
+                    course=self.course,
+                    payment_status='completed',
+                    is_enrolled=True
+                ).values_list('student', flat=True).distinct()
+                
+                from user_managment.models import User
+                students = User.objects.filter(id__in=enrolled_students)
+                send_course_announcement_notification(self, students)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send course announcement notification for announcement {self.id}: {str(e)}", exc_info=True)
     
     def __str__(self):
         return f"Announcement: {self.title} - {self.course.title}"
@@ -1685,3 +1747,125 @@ class Event(models.Model):
 
     def __str__(self):
         return f"{self.title} - {self.start_datetime}"
+
+
+# Notifations
+
+
+class NotificationType(models.TextChoices):
+    """Types of notifications in the system"""
+    ENROLLMENT_CONFIRMED = 'enrollment_confirmed', 'Enrollment Confirmed'
+    ENROLLMENT_PENDING = 'enrollment_pending', 'Enrollment Pending'
+    PAYMENT_COMPLETED = 'payment_completed', 'Payment Completed'
+    PAYMENT_FAILED = 'payment_failed', 'Payment Failed'
+    COURSE_COMPLETED = 'course_completed', 'Course Completed'
+    CERTIFICATE_ISSUED = 'certificate_issued', 'Certificate Issued'
+    EMAIL_VERIFICATION = 'email_verification', 'Email Verification'
+    PASSWORD_RESET = 'password_reset', 'Password Reset'
+    ASSIGNMENT_GRADED = 'assignment_graded', 'Assignment Graded'
+    QUIZ_GRADED = 'quiz_graded', 'Quiz Graded'
+    COURSE_ANNOUNCEMENT = 'course_announcement', 'Course Announcement'
+    LESSON_UNLOCKED = 'lesson_unlocked', 'Lesson Unlocked'
+    MODULE_UNLOCKED = 'module_unlocked', 'Module Unlocked'
+    GENERAL = 'general', 'General'
+
+
+class Notification(models.Model):
+    """
+    Notification model for user notifications.
+    Supports generic foreign keys to link to any related object (enrollment, payment, etc.)
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        help_text="User who receives this notification"
+    )
+    
+    notification_type = models.CharField(
+        max_length=50,
+        choices=NotificationType.choices,
+        default=NotificationType.GENERAL,
+        help_text="Type of notification"
+    )
+    
+    title = models.CharField(
+        max_length=200,
+        help_text="Notification title"
+    )
+    
+    message = models.TextField(
+        help_text="Notification message/content"
+    )
+    
+    # Generic foreign key to link to any related object
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Type of related object"
+    )
+    object_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="ID of related object"
+    )
+    related_object = GenericForeignKey('content_type', 'object_id')
+    
+    # Status fields
+    is_read = models.BooleanField(
+        default=False,
+        help_text="Whether the user has read this notification"
+    )
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the notification was read"
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the notification was created"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When the notification was last updated"
+    )
+    
+    # Optional: Action URL for frontend navigation
+    action_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Optional URL to navigate to when notification is clicked"
+    )
+    
+    # Optional: Icon or image
+    icon = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Icon identifier for the notification (e.g., 'enrollment', 'payment', 'certificate')"
+    )
+    
+    class Meta:
+        ordering = ['-created_at']  # Newest first
+        indexes = [
+            models.Index(fields=['user', 'is_read', '-created_at']),
+            models.Index(fields=['user', 'notification_type']),
+            models.Index(fields=['-created_at']),
+        ]
+        verbose_name = "Notification"
+        verbose_name_plural = "Notifications"
+    
+    def mark_as_read(self):
+        """Mark notification as read"""
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save(update_fields=['is_read', 'read_at'])
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.title} ({'read' if self.is_read else 'unread'})"
+

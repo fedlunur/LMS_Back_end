@@ -59,6 +59,7 @@ def get_model_mapping():
         "assessmentresponse": courses_models.AssessmentResponse,
         "event": courses_models.Event,
         "eventtype": courses_models.EventType,
+        "notification": courses_models.Notification,
 
         #  Chat 
   

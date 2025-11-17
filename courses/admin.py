@@ -13,6 +13,7 @@ from .models import (
     CourseOverview, CourseFAQ, AssignmentSubmission,
     FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer,
     AssessmentAttempt, AssessmentResponse, Event, EventType,
+    Notification,
 )
 
 
@@ -434,5 +435,31 @@ class EventAdmin(admin.ModelAdmin):
         }),
         ("Schedule", {
             "fields": ("start_datetime", "end_datetime")
+        }),
+    )
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("user", "title", "notification_type", "is_read", "created_at")
+    list_filter = ("notification_type", "is_read", "created_at")
+    search_fields = ("user__email", "title", "message")
+    readonly_fields = ("created_at", "updated_at", "read_at")
+    ordering = ("-created_at",)
+    date_hierarchy = "created_at"
+    autocomplete_fields = ("user",)
+    
+    fieldsets = (
+        ("Notification Information", {
+            "fields": ("user", "notification_type", "title", "message")
+        }),
+        ("Related Content", {
+            "fields": ("content_type", "object_id", "action_url", "icon")
+        }),
+        ("Status", {
+            "fields": ("is_read", "read_at")
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at")
         }),
     )
