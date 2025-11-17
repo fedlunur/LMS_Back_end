@@ -78,7 +78,7 @@ def send_enrollment_pending_notification(enrollment):
         title="Payment Required",
         message=f"Your enrollment in '{enrollment.course.title}' is pending payment. Please complete the payment to access the course.",
         related_object=enrollment,
-        action_url=f"/dashboard/courses/{enrollment.course.id}/payment",
+        action_url=f"/dashboard/courses/{enrollment.course.id}",
         icon="payment"
     )
 
@@ -107,7 +107,7 @@ def send_payment_failed_notification(enrollment, reason=None):
         title="Payment Failed",
         message=message,
         related_object=enrollment,
-        action_url=f"/dashboard/courses/{enrollment.course.id}/payment",
+        action_url=f"/dashboard/courses/{enrollment.course.id}",
         icon="payment"
     )
 
@@ -120,7 +120,7 @@ def send_course_completed_notification(enrollment):
         title="Course Completed!",
         message=f"Congratulations! You have completed '{enrollment.course.title}'. Great job!",
         related_object=enrollment,
-        action_url=f"/dashboard/courses/{enrollment.course.id}/certificate",
+        action_url=f"/dashboard/courses/{enrollment.course.id}",
         icon="certificate"
     )
 
@@ -133,7 +133,7 @@ def send_certificate_issued_notification(certificate):
         title="Certificate Issued",
         message=f"Your certificate for '{certificate.enrollment.course.title}' has been issued. Download it now!",
         related_object=certificate,
-        action_url=f"/certificates/{certificate.id}",
+        action_url=f"/dashboard/achievements",
         icon="certificate"
     )
 
@@ -146,7 +146,7 @@ def send_assignment_graded_notification(submission):
         title="Assignment Graded",
         message=f"Your assignment '{submission.lesson.title}' has been graded. Score: {submission.score}/{submission.max_score}",
         related_object=submission,
-        action_url=f"/lessons/{submission.lesson.id}/assignment",
+        action_url=f"/dashboard/my-learning",
         icon="assignment"
     )
 
@@ -160,7 +160,7 @@ def send_quiz_graded_notification(quiz_attempt):
         title="Quiz Graded",
         message=f"Your quiz '{quiz_attempt.lesson.title}' has been graded. You {status} with a score of {quiz_attempt.score}%.",
         related_object=quiz_attempt,
-        action_url=f"/lessons/{quiz_attempt.lesson.id}/quiz",
+        action_url=f"/dashboard/my-learning",
         icon="quiz"
     )
 
@@ -181,7 +181,7 @@ def send_course_announcement_notification(announcement, enrolled_students):
             title=f"New Announcement: {announcement.title}",
             message=announcement.content[:200] + "..." if len(announcement.content) > 200 else announcement.content,
             related_object=announcement,
-            action_url=f"/courses/{announcement.course.id}/announcements",
+            action_url=f"/dashboard",
             icon="announcement"
         )
         if notification:
@@ -197,7 +197,7 @@ def send_lesson_unlocked_notification(enrollment, lesson):
         title="New Lesson Available",
         message=f"A new lesson '{lesson.title}' is now available in '{enrollment.course.title}'.",
         related_object=lesson,
-        action_url=f"/lessons/{lesson.id}",
+        action_url=f"/dashboard/courses/{enrollment.course.id}",
         icon="lesson"
     )
 
