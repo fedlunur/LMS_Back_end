@@ -65,7 +65,7 @@ def send_enrollment_confirmed_notification(enrollment):
         title="Enrollment Confirmed",
         message=f"You have successfully enrolled in '{enrollment.course.title}'. Start learning now!",
         related_object=enrollment,
-        action_url=f"/courses/{enrollment.course.id}",
+        action_url=f"/dashboard/courses/{enrollment.course.id}",
         icon="enrollment"
     )
 
@@ -78,7 +78,7 @@ def send_enrollment_pending_notification(enrollment):
         title="Payment Required",
         message=f"Your enrollment in '{enrollment.course.title}' is pending payment. Please complete the payment to access the course.",
         related_object=enrollment,
-        action_url=f"/courses/{enrollment.course.id}/payment",
+        action_url=f"/dashboard/courses/{enrollment.course.id}/payment",
         icon="payment"
     )
 
@@ -91,7 +91,7 @@ def send_payment_completed_notification(enrollment):
         title="Payment Completed",
         message=f"Your payment for '{enrollment.course.title}' has been completed. You can now access the course!",
         related_object=enrollment,
-        action_url=f"/courses/{enrollment.course.id}",
+        action_url=f"/dashboard/courses/{enrollment.course.id}",
         icon="payment"
     )
 
@@ -107,7 +107,7 @@ def send_payment_failed_notification(enrollment, reason=None):
         title="Payment Failed",
         message=message,
         related_object=enrollment,
-        action_url=f"/courses/{enrollment.course.id}/payment",
+        action_url=f"/dashboard/courses/{enrollment.course.id}/payment",
         icon="payment"
     )
 
@@ -120,7 +120,7 @@ def send_course_completed_notification(enrollment):
         title="Course Completed!",
         message=f"Congratulations! You have completed '{enrollment.course.title}'. Great job!",
         related_object=enrollment,
-        action_url=f"/courses/{enrollment.course.id}/certificate",
+        action_url=f"/dashboard/courses/{enrollment.course.id}/certificate",
         icon="certificate"
     )
 
@@ -210,7 +210,7 @@ def send_module_unlocked_notification(enrollment, module):
         title="New Module Available",
         message=f"A new module '{module.title}' is now available in '{enrollment.course.title}'.",
         related_object=module,
-        action_url=f"/courses/{enrollment.course.id}/modules/{module.id}",
+        action_url=f"/dashboard/courses/{enrollment.course.id}/modules/{module.id}",
         icon="module"
     )
 
