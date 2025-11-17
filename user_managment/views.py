@@ -1,9 +1,16 @@
+# Default:
+
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import login, logout
+import traceback
+from rest_framework.exceptions import ValidationError
+from .serializers import UserRegisterSerializer
+from .models import EmailOTP
+from user_managment.useroTpUtils import send_otp_email
 from .serializers import *
 from collections import defaultdict
 from django.db.models import Q
@@ -11,8 +18,24 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db import IntegrityError
 from rest_framework_simplejwt.tokens import AccessToken
-
+from rest_framework.decorators import api_view
 from rest_framework import generics
+from django.utils import timezone
+from datetime import timedelta
+import uuid
+import calendar
+import logging
+import random
+from pathlib import Path
+import os
+BASE_DIR = Path(__file__).resolve().parent
+env_path = BASE_DIR / '.env'
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=env_path)
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+
+logger = logging.getLogger(__name__)
 class TokenCheckView(APIView):
     permission_classes = [AllowAny]  # No authentication required to check token
 
@@ -42,71 +65,50 @@ class LogoutView(APIView):
         logout(request)
         return Response(status=status.HTTP_200_OK)
 
-
-import traceback
-
-
-# class UserRegister(APIView):
-#     permission_classes = [AllowAny]
-
-#     def post(self, request):
-#         clean_data = self.custom_validation(request.data)
-#         serializer = UserRegisterSerializer(data=clean_data)
-#         if serializer.is_valid(raise_exception=True):
-#             user = serializer.save()
-#             return Response(serializer.data, status=status.HTTP_201_CREATED)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#     def custom_validation(self, data):
-#         # Implement your custom validation logic here
-#         return data  # Returning the cleaned data
 class UserRegister(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        print("📌 Incoming request data:", request.data)  # Log request data
+        print("📌 Incoming request data:", request.data)
 
-        
-        clean_data = self.custom_validation(request.data)  # Validate data first
-        print("✅ Data after validation:", clean_data)  # Log validated data
-            
-        serializer = UserRegisterSerializer(data=clean_data)  # Attempt to create serializer
-        print("🛠️ Serializer initialized successfully.")
+        clean_data = self.custom_validation(request.data)
+        serializer = UserRegisterSerializer(data=clean_data)
+
         try:
             if serializer.is_valid(raise_exception=True):
                 user = serializer.save()
-                token = self.get_token(user)
-                return Response(self.get_user_data(user, token), status=status.HTTP_201_CREATED)
+                user.is_active = False
+                user.save()
+
+                # Generate OTP
+                otp_code = str(random.randint(100000, 999999))
+                EmailOTP.objects.create(user=user, code=otp_code)
+                send_otp_email(user.email, otp_code)
+
+                return Response(
+                    {
+                        "success": True,
+                        "message": "User registered successfully. Please verify your email using the OTP sent.",
+                    },
+                    status=status.HTTP_201_CREATED
+                )
 
         except ValidationError as e:
-            print("⚠️ ValidationError:", e)  # Log error
-            errors = serializer.errors if 'serializer' in locals() else {"error": "Serializer failed before validation"}
+            print("⚠️ ValidationError:", e)
             return Response(
-                {
-                    "success": False,
-                    "message": "Validation failed.",
-                    "errors": errors,
-                },
+                {"success": False, "message": "Validation failed.", "errors": serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         except IntegrityError as e:
             print("⚠️ IntegrityError:", e)
             return Response(
-                {
-                    "success": False,
-                    "message": "A database error occurred. Please try again."
-                },
+                {"success": False, "message": "A database error occurred."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         except Exception as e:
             print("❌ Unexpected error:", e)
             return Response(
-                {
-                    "success": False,
-                    "message": "An unexpected error occurred. Please try again later."
-                },
+                {"success": False, "message": "Unexpected error. Please try again later."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -119,13 +121,15 @@ class UserRegister(APIView):
             raise ValidationError({"password": ["Password must be at least 3 characters."]})
 
         # Append a default role if not provided
-        if "role" not in data or not data["role"]:
-            from .models import Role  # Import inside the function to avoid circular import
-            default_role = Role.objects.first()  # Get the first available role
-            if default_role:
-                data["role"] = default_role.id
-            else:
-                raise ValidationError({"role": ["No role found. Please create a role first."]})
+        # if "role" not in data or not data["role"]:
+        #     from .models import Role  # Import inside the function to avoid circular import
+        #     default_role = Role.objects.first()  # Get the first available role
+        #     if default_role:
+        #         data["role"] = default_role.id
+        #     else:
+        #         raise ValidationError({"role": ["No role found. Please create a role first."]})
+
+        # The serializer will handle role creation, so we don't need to validate it here.
 
         return data
 
@@ -161,8 +165,6 @@ class UserRegister(APIView):
             },
             "message": "Account created successfully!",
         }
-
-
 class UserLogin(APIView):
     permission_classes = [AllowAny]
 
@@ -170,88 +172,119 @@ class UserLogin(APIView):
     def post(self, request):
         data = request.data
         serializer = UserLoginSerializer(data=data)
+        print("%% Login attempted")
 
-        if not serializer.is_valid():
+        if not serializer.is_valid(): 
+           
+        # Extract first human-readable error
+            error_msg = None
+            if "non_field_errors" in serializer.errors:
+                error_msg = serializer.errors["non_field_errors"][0]
+            else:
+                # fallback for field-level errors
+                for field, errors in serializer.errors.items():
+                    error_msg = errors[0]
+                    break
+
             return Response(
-                {'success': False, 'message': 'Incorrect email number or password', 'errors': serializer.errors},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "success": False,
+                    "message": error_msg or "Incorrect email or password",
+                    "errors": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        email = data.get('email')
-        password = data.get('password')
 
+        email = data.get("email")
+        password = data.get("password")
+
+        # Step 1: Check if user exists
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
             return Response(
-                {'success': False, 'message': 'No account found with this email number.'},
-                status=status.HTTP_404_NOT_FOUND
+                {"success": False, "message": "No account found with this email."},
+                status=status.HTTP_404_NOT_FOUND,
             )
-        
+
+        print("%% Found user:", user.email, "is_active:", user.is_active)
+
+        # Step 2: Handle inactive (unverified) user before authentication
+        if not user.is_active:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Your account is not activated. "
+                        "Please verify your email using the OTP sent to your inbox."
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Step 3: Authenticate only active users
         user = authenticate(request, email=email, password=password)
-        print("%% The user will be checked ",user);
         if user is None:
             return Response(
-                {'success': False, 'message': 'Incorrect password. Please try again.'},
-                status=status.HTTP_401_UNAUTHORIZED
+                {"success": False, "message": "Incorrect password. Please try again."},
+                status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        if not user.enabled:
-            return Response(
-                {'success': False, 'message': 'Your account has been deactivated. Contact support for assistance.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        # Generate JWT tokens (access + refresh)
+        # Step 4: Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)
 
         login(request, user)
-
-        # Update login status
         user.isLoggedIn = 1
         user.save()
 
-        return Response({
-            'success': True,
-            'result': { 
-                
-                
-                 "id": user.id,
-                # "accessToken": token.get("access", ""),
-                # "refreshToken": token.get("refresh", ""),
-                "access_token":access_token,
-                "refresh_token": refresh_token,
-                "name":user.first_name ,
-                "first_name": user.first_name,
-                "middle_name": user.middle_name,
-                "last_name": user.last_name,
-                "role":user.role.name,
-                "status": "Active",
-                "email": user.email,
-                "isLoggedIn": 1,
-                
-                # 'id': user.id,
-                # 'accessToken': access_token,
-                # 'refreshToken': refresh_token,  # Now included
-                # "FirstName": user.first_name,
-                # "LastName": user.middle_name,
-                # "role":user.role.name,
-                # 'status': user.status,
-                # 'email': user.email,
-                # 'isLoggedIn': user.isLoggedIn, 
+        return Response(
+            {
+                "success": True,
+                "result": {
+                    "id": user.id,
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "first_name": user.first_name,
+                    "middle_name": user.middle_name,
+                    "last_name": user.last_name,
+                    "role": user.role.name,
+                    "status": "Active",
+                    "email": user.email,
+                    "isLoggedIn": 1,
+                },
+                "message": "Login successful! Welcome back.",
             },
-            'message': 'Login successful! Welcome back.',
-        }, status=status.HTTP_200_OK)
+            status=status.HTTP_200_OK,
+        )
+
 
 class UserLogout(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  
 
     def post(self, request):
-        logout(request)
-        return Response(status=status.HTTP_200_OK)
+        refresh_token = request.data.get("refresh") or request.data.get("refresh_token")
+        if not refresh_token:
+            return Response(
+                {"success": False, "message": "Refresh token required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()  
+            return Response(
+                {"success": True, "message": "You have been successfully logged out."},
+                status=status.HTTP_200_OK,
+            )
+        except TokenError:
+            return Response(
+                {"success": False, "message": "Invalid or expired refresh token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+            
 class UserView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -260,6 +293,40 @@ class UserView(APIView):
         return Response({'user': serializer.data}, status=status.HTTP_200_OK)
 
 
+class UpdateProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        user = request.user
+        allowed_fields = ['first_name', 'middle_name', 'last_name', 'photo', 'title', 'bio']
+        for field in allowed_fields:
+            if field in request.data:
+                setattr(user, field, request.data.get(field))
+        user.save()
+        return Response({
+            'success': True,
+            'data': UserDetailSerializer(user).data,
+            'message': 'Profile updated successfully.'
+        }, status=status.HTTP_200_OK)
+
+
+class TeacherDetailView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, user_id):
+        try:
+            teacher = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"success": False, "message": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Ensure role is teacher
+        role_name = (teacher.role.name.lower() if teacher.role else '')
+        if role_name not in ['teacher', 'instructor']:
+            return Response({"success": False, "message": "User is not a teacher."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'success': True,
+            'data': UserDetailSerializer(teacher).data,
+            'message': 'Teacher profile retrieved.'
+        }, status=status.HTTP_200_OK)
 class PasswordChangeSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True)
@@ -302,3 +369,5 @@ class PasswordChangeView(generics.UpdateAPIView):
            
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)    
 
+
+        return False

@@ -21,7 +21,7 @@ class CustomUserAdmin(UserAdmin):
         }),
     )
     
-    list_display = ( 'first_name','middle_name','role', 'enabled', 'is_staff')  # Match 'enabled' from model
+    list_display = ( 'first_name','middle_name','email','role',"is_active" ,'enabled', 'is_staff')  # Match 'enabled' from model
     search_fields = ('email', 'first_name', 'last_name','phone')
     ordering = ('created',)
 
@@ -43,3 +43,25 @@ class UserRoleAdmin(admin.ModelAdmin):
 class UserLogAdmin(admin.ModelAdmin):
     list_display = ('user', 'action', 'timestamp', 'ip_address')
     list_filter = ('action', 'timestamp', 'user')    
+
+@admin.register(EmailOTP)
+class EmailOTPAdmin(admin.ModelAdmin):
+    list_display = ("user", "code", "resend_count", "created_at", "is_expired_display")
+    search_fields = ("user__email", "code")
+    list_filter = ("created_at", "resend_count")
+    readonly_fields = ("created_at",)
+
+    fieldsets = (
+        (None, {
+            "fields": ("user", "code", "resend_count")
+        }),
+        ("Metadata", {
+            "fields": ("created_at",),
+            "classes": ("collapse",),
+        }),
+    )
+
+    def is_expired_display(self, obj):
+        return obj.is_expired()
+    is_expired_display.boolean = True
+    is_expired_display.short_description = "Expired?"

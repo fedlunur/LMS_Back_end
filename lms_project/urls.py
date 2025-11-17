@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.urls import path,include
 from django.conf.urls.static import static
 
+from user_managment.useroTpUtils import VerifyOTPView
 from user_managment.views import *
 from courses.views import *
 from courses.constants import *
@@ -59,6 +60,8 @@ urlpatterns = [
     re_path(r'^api/token/check/?$', TokenCheckView.as_view(), name='token_check'),
     re_path(r'^api/logout/?$', LogoutView.as_view(), name='logout'),
     re_path(r'^api/register/?$', UserRegister.as_view(), name='register'),
+    
+    re_path("^api/verify-otp/", VerifyOTPView.as_view(), name="verify-otp"),
     re_path(r'^api/login/?$', UserLogin.as_view(), name='login'),
     re_path(r'^api/user_logout/?$', UserLogout.as_view(), name='user_logout'),
     # Generics

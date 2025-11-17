@@ -17,6 +17,11 @@ BASE_DIR = Path(__file__).resolve().parent
 env_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
+#resend api key 
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL")
+TESTING = os.getenv("TESTING", default=True)
+
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
@@ -70,11 +75,9 @@ INSTALLED_APPS = [
 ]
 
 SIMPLE_JWT = {
-    # 'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
-    # 'REFRESH_TOKEN_LIFETIME': timedelta(days=70),
+ 
     'ACCESS_TOKEN_LIFETIME': timedelta(days=365*10),  # 10 years
-    #  'REFRESH_TOKEN_LIFETIME': timedelta(days=365*20),  # 20 years
-     'REFRESH_TOKEN_LIFETIME': timedelta(seconds=300), 
+    'REFRESH_TOKEN_LIFETIME': timedelta(seconds=300), 
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
@@ -184,7 +187,6 @@ JAZZMIN_SETTINGS = {
     "show_ui_builder": False,
     "changeform_format": "collapsible",  # Makes forms easier to work with
     "changeform_format_overrides": {"auth.user": "carousel"},  # Example: customized format for specific models
-
     "button_classes": {
         "primary": "btn-primary",
         "secondary": "btn-secondary",

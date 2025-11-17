@@ -1,13 +1,12 @@
 # models.py
-import uuid
 from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 from user_managment.models import User 
 from .choices import *
-from django.contrib.postgres.fields import ArrayField,JSONField
 from django.utils.text import slugify
+import string, random 
 
 class Category(models.Model):
     name = models.CharField(max_length=120, unique=True)
@@ -18,13 +17,11 @@ class Category(models.Model):
         blank=True,
         help_text="Frontend icon identifier, e.g., 'BookOpen', 'Code', etc."
     )
-    count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     class Meta:
         verbose_name_plural = "Category"
     def save(self, *args, **kwargs):
         if not self.slug:
-            # Auto-generate slug from name if not provided
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 
@@ -32,7 +29,6 @@ class Category(models.Model):
         return self.name
 
 class Level(models.Model):
-   
     name = models.CharField(max_length=50, unique=True)  # e.g., "Beginner"
     code = models.SlugField(max_length=50, unique=True)   # e.g., "beginner"
     class Meta:
@@ -52,12 +48,15 @@ class Course(models.Model):
     thumbnail = models.ImageField(upload_to="course_thumbnails/", null=True, blank=True)
     instructor = models.ForeignKey(User, on_delete=models.CASCADE, related_name="courses")
     status = models.CharField(max_length=10,choices=STATUS_CHOICES,default="draft")
+    objective = models.JSONField(default=list, blank=True)  # ["Build React apps", ...]
+    what_you_will_learn = models.JSONField(default=list, blank=True)
+    requirements = models.JSONField(default=list, blank=True)
     # Approval / moderation
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_courses")
     approved_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
-    issue_certificate=models.BooleanField(default=False)
+    issue_certificate = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -80,18 +79,44 @@ class Course(models.Model):
             and not self.is_flagged
         )
 
+    @property
+    def total_lessons(self):
+        return self.lessons.count()
+
+    @property
+    def total_duration(self):
+        from datetime import timedelta
+        total = sum((lesson.duration for lesson in self.lessons.all() if lesson.duration), timedelta())
+        hours = total.seconds // 3600
+        minutes = (total.seconds % 3600) // 60
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        else:
+            return f"{minutes}m"
+
+    @property
+    def average_rating(self):
+        ratings = self.ratings.all()
+        if ratings:
+            return round(sum(r.rating for r in ratings) / len(ratings), 1)
+        return 0.0
+
+    @property
+    def total_reviews(self):
+        return self.ratings.count()
+
 
 class Module(models.Model):
     """Optional grouping of lessons inside a course"""
-  
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="modules")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    order = models.PositiveIntegerField(default=0)
+    duration = models.CharField(max_length=50, blank=True, default="", help_text="e.g., '2h 30m'")
+    order = models.PositiveIntegerField(default=0, blank=True)
 
     class Meta:
         verbose_name_plural = "Modules"
-        ordering = ["order"]
+        ordering = ["id", "order"]
         constraints = [
             models.UniqueConstraint(fields=["course", "order"], name="unique_module_order_per_course")
         ]
@@ -99,31 +124,46 @@ class Module(models.Model):
     def __str__(self):
         return f"{self.course.title} - {self.title}"
 
+    def save(self, *args, **kwargs):
+        # Calculate number of lessons before saving
+        if self.pk:  # Only if this module already exists in DB
+            self.number_of_lessons = self.lessons.count()
+        else:
+            self.number_of_lessons = 0
+        super().save(*args, **kwargs)
+
 
 # The `Lesson` class defines a model with fields for course, module, title, description, content type,
 # order, duration, created and updated timestamps, and a unique constraint on course and order.
 class Lesson(models.Model):
     class ContentType(models.TextChoices):
         VIDEO = "video", "Video"
-        TEXT = "text", "Text"
         QUIZ = "quiz", "Quiz"
         ASSIGNMENT = "assignment", "Assignment"
-        ARTICLE='article'
-        FILE = "file", "File"
-        URL = "url", "URL/Link"
+        ARTICLE = "article", "Article"
+        # TEXT = "text", "Text"
+        # FILE = "file", "File"
+        # URL = "url", "URL/Link"
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="lessons")
+    module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="lessons")
     title = models.CharField(max_length=200)
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="Lessons")
-    module = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name="Lessons")
     description = models.TextField(blank=True)
     content_type = models.CharField(max_length=20, choices=ContentType.choices, default=ContentType.VIDEO)
-    order = models.PositiveIntegerField(default=0)
+    order = models.PositiveIntegerField(default=0, blank=True)
     duration = models.DurationField(null=True, blank=True)  # better for arithmetic
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name_plural = "Lesson"
-        ordering = ["order", "created_at"]
+        ordering = ["module", "order", "created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['module', 'order'],
+                name='unique_lesson_order_per_module',
+                condition=models.Q(module__isnull=False)
+            ),
+        ]
 
     def __str__(self):
         return f"{self.course.title} — {self.title}"
@@ -132,11 +172,30 @@ class VideoLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="video")
     video_file = models.FileField(upload_to='lesson_videos/', null=True, blank=True)
     youtube_url = models.URLField(max_length=500, blank=True)
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
     transcript = models.TextField(blank=True)
-    chapters =  models.JSONField(default=list, blank=True)  # list of chapter names/timestamps
     duration = models.DurationField(null=True, blank=True)
+
     class Meta:
         verbose_name_plural = "VideoLesson"
+
+    def __str__(self):
+        return self.title or self.lesson.title
+
+
+class VideoLessonAttachment(models.Model):
+    video_lesson = models.ForeignKey(
+        "VideoLesson",
+        on_delete=models.CASCADE,
+        related_name="attachments"
+    )
+    file = models.FileField(upload_to="video_lesson_attachments/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.video_lesson.lesson.title} — {self.file.name}"
+
 
 class QuizLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="quiz")
@@ -216,7 +275,7 @@ class QuizAttempt(models.Model):
     time_taken = models.DurationField(null=True, blank=True)  # Time taken to complete
     
     class Meta:
-        unique_together = ['student', 'lesson']  # One attempt per student per lesson
+        # Allow multiple attempts per student per lesson
         ordering = ['-completed_at']
         verbose_name_plural = "QuizAttempt"
     
@@ -261,7 +320,9 @@ class QuizConfiguration(models.Model):
 class AssignmentLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="assignment")
     instructions = models.TextField(blank=True)
-    submission_types = ArrayField(models.CharField(max_length=10), default=list, blank=True)  # ["file", "text"]
+    tasks = models.JSONField(default=list, blank=True, help_text='List of tasks for the assignment')
+    # Use JSONField (list) instead of Postgres ArrayField for cross-DB compatibility.
+    submission_types = models.JSONField(default=list, blank=True, help_text='List of submission types, e.g. ["file", "text"]')
     due_date = models.DateTimeField(null=True, blank=True)
     due_days = models.PositiveIntegerField(null=True, blank=True)
     max_score = models.FloatField(default=100)
@@ -277,58 +338,137 @@ class AssignmentLesson(models.Model):
        
         verbose_name_plural = "AssignmentLesson"
 
+        
 class ArticleLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="article")
+    title = models.CharField(max_length=200)
+    subtitle = models.CharField(max_length=300, blank=True)
     content = models.TextField(blank=True)
-    estimated_read_time = models.PositiveIntegerField(default=0)
-    attachments =  models.JSONField(default=list, blank=True)  # id, title, type, url/file
-    external_links =  models.JSONField(default=list, blank=True)  # id, title, url, description
+    estimated_read_time = models.PositiveIntegerField(
+        default=0, blank=True, help_text="Auto-calculated based on word count"
+    )
+    attachments_title = models.CharField(max_length=200, blank=True)
+
     class Meta:
-       
         verbose_name_plural = "ArticleLesson"
 
-class LessonResource(models.Model):
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="resources")
+    def __str__(self):
+        return self.title or self.lesson.title
+
+
+class ArticleLessonAttachment(models.Model):
+    article_lesson = models.ForeignKey(
+        "ArticleLesson",
+        on_delete=models.CASCADE,
+        related_name="attachment_items"
+    )
+    file = models.FileField(upload_to="article_lesson_attachments/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.article_lesson.lesson.title} — {self.file.name}"
+
+
+class ArticleLessonExternalLink(models.Model):
+    article_lesson = models.ForeignKey(
+        "ArticleLesson",
+        on_delete=models.CASCADE,
+        related_name="external_links_items"
+    )
     title = models.CharField(max_length=200)
-    type = models.CharField(max_length=50)
+    url = models.URLField(max_length=500)
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.article_lesson.lesson.title})"
+
+class LessonResource(models.Model):
+    RESOURCE_TYPE_CHOICES = [
+        ('pdf', 'PDF'),
+        ('doc', 'Document'),
+        ('video', 'Video'),
+        ('image', 'Image'),
+        ('other', 'Other'),
+    ]
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="resources")
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    type = models.CharField(max_length=50, choices=RESOURCE_TYPE_CHOICES, default="pdf")
     file = models.FileField(upload_to='lesson_resources/', null=True, blank=True)  
     class Meta:
        
         verbose_name_plural = "LessonResource"
 
 class Enrollment(models.Model):
+    PAYMENT_STATUS_CHOICES = [
+        ('completed', 'Completed'),
+        ('pending', 'Pending'),
+        ('failed', 'Failed'),
+    ]
+    
     student = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='enrollments', db_index=True
     )
     course = models.ForeignKey(
         'Course', on_delete=models.CASCADE, related_name='enrollments', db_index=True
     )
+    is_enrolled = models.BooleanField(default=True)
+    is_unlocked = models.BooleanField(default=False)
+    is_completed = models.BooleanField(default=False)
+    completed_lessons = models.PositiveIntegerField(default=0)
     enrolled_at = models.DateTimeField(auto_now_add=True)
-    progress = models.FloatField(default=0.0)  # Overall course progress %
+    progress = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)  # 0.00 to 100.00
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PAYMENT_STATUS_CHOICES,
+        default='completed'
+    )
     last_accessed = models.DateTimeField(auto_now=True)
-    completed = models.BooleanField(default=False)
-    completed_at = models.DateTimeField(null=True, blank=True)
-
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+  
     class Meta:
         unique_together = ['student', 'course']
         ordering = ['-enrolled_at']
+        indexes = [
+            models.Index(fields=['student', 'course']),
+            models.Index(fields=['is_completed']),
+        ]
         verbose_name_plural = "Enrollment"
-
     def calculate_progress(self):
-        """Calculate overall course progress based on lesson completions."""
-        total_lessons = self.course.lessons.count()
+        """Calculate course progress based on completed lessons"""
+        total_lessons = Lesson.objects.filter(course=self.course).count()
         if total_lessons == 0:
             self.progress = 0.0
-        else:
-            completed_lessons = self.lesson_progress.filter(completed=True).count()
-            self.progress = (completed_lessons / total_lessons) * 100
-
-        if self.progress >= 100 and not self.completed:
-            self.completed = True
+            self.completed_lessons = 0
+            self.is_completed = True
             self.completed_at = timezone.now()
-
-        self.save(update_fields=['progress', 'completed', 'completed_at'])
+        else:
+            completed_lessons = LessonProgress.objects.filter(
+                enrollment=self, completed=True
+            ).count()
+            self.completed_lessons = completed_lessons
+            self.progress = round((completed_lessons / total_lessons) * 100, 2)
+            if completed_lessons == total_lessons:
+                self.is_completed = True
+                if not self.completed_at:
+                    self.completed_at = timezone.now()
+            else:
+                self.is_completed = False
+                self.completed_at = None
+        self.save(update_fields=['progress', 'completed_lessons', 'is_completed', 'completed_at'])
         return self.progress
+    
+    def unlock_first_module(self):
+        """Unlock the first module when student enrolls"""
+        first_module = Module.objects.filter(course=self.course).order_by('order').first()
+        if first_module:
+            ModuleProgress.objects.get_or_create(
+                enrollment=self,
+                module=first_module,
+                defaults={'progress': 0.0, 'completed': False}
+            )
 
     def __str__(self):
         return f"{self.student.email} - {self.course.title}"
@@ -341,7 +481,7 @@ class LessonProgress(models.Model):
     lesson = models.ForeignKey(
         'Lesson', on_delete=models.CASCADE, related_name='student_progress', db_index=True
     )
-    progress = models.FloatField(default=0.0)  # Lesson progress %
+    progress = models.DecimalField(max_digits=5, decimal_places=2, default=0.00) 
     # The above code is a comment in Python. Comments are used to provide explanations or notes within
     # the code for better understanding. In this case, the comment indicates that the code has been
     # completed.
@@ -559,7 +699,6 @@ class CourseAnnouncement(models.Model):
 
 class CheckpointQuizResponse(models.Model):
     """Student responses to checkpoint quizzes embedded in video/text lessons"""
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='checkpoint_responses')
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='checkpoint_responses')
     
@@ -779,5 +918,285 @@ class Message(models.Model):
         return f"{self.sender.get_full_name()} to {self.receiver.get_full_name()} - {self.sent_at.strftime('%Y-%m-%d %H:%M')}"
 
 
+# ------------ Additional Models for Course Details ------------ #
+
+class CourseOverview(models.Model):
+    course = models.OneToOneField(Course, on_delete=models.CASCADE, related_name="overview")
+    total_enrollments = models.PositiveIntegerField(default=0)
+    average_rating = models.FloatField(default=0.0)
+    completion_rate = models.FloatField(default=0.0)
+    title = models.CharField(max_length=200, blank=True)
+    subtitle = models.CharField(max_length=300, blank=True)
+    # description = models.TextField(blank=True)
+    # objective = models.JSONField(default=list, blank=True)  # ["Build React apps", ...]
+    # what_you_will_learn = models.JSONField(default=list, blank=True)
+    # requirements = models.JSONField(default=list, blank=True)
+
+    def __str__(self):
+        return f"Overview for {self.course.title}"
 
 
+class CourseFAQ(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="faqs")
+    question = models.CharField(max_length=300)
+    answer = models.TextField()
+
+    class Meta:
+        verbose_name_plural = "Course FAQ"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"FAQ for {self.course.title}: {self.question}"
+
+
+# ============ Additional Models for LMS Functionality ============
+
+class LessonAttachment(models.Model):
+    """Multiple attachments for VideoLesson and ArticleLesson"""
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to='lesson_attachments/')
+    title = models.CharField(max_length=200, blank=True)
+    description = models.TextField(blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name_plural = "Lesson Attachments"
+        ordering = ['-uploaded_at']
+    
+    def __str__(self):
+        return f"{self.lesson.title} - {self.title or self.file.name}"
+
+
+class QuizResponse(models.Model):
+    """Student responses to quiz questions"""
+    attempt = models.ForeignKey(QuizAttempt, on_delete=models.CASCADE, related_name='responses')
+    question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE, related_name='student_responses')
+    answer = models.ForeignKey(QuizAnswer, on_delete=models.CASCADE, null=True, blank=True, related_name='selected_in_responses')
+    answer_text = models.TextField(blank=True, help_text="For fill-in-blank or short answer questions")
+    is_correct = models.BooleanField(default=False)
+    points_earned = models.FloatField(default=0.0)
+    
+    class Meta:
+        unique_together = ['attempt', 'question']
+        verbose_name_plural = "Quiz Responses"
+    
+    def __str__(self):
+        return f"{self.attempt.student.email} - {self.question.question_text[:50]}"
+
+
+class AssignmentSubmission(models.Model):
+    """Student submissions for assignment lessons"""
+    SUBMISSION_STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('submitted', 'Submitted'),
+        ('graded', 'Graded'),
+        ('returned', 'Returned'),
+    ]
+    
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='assignment_submissions')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='submissions')
+    enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE, related_name='assignment_submissions')
+    
+    # Submission content
+    submission_text = models.TextField(blank=True)
+    submission_file = models.FileField(upload_to='assignment_submissions/', null=True, blank=True)
+    submission_url = models.URLField(blank=True)
+    github_repo = models.URLField(blank=True, help_text="GitHub repository URL")
+    
+    # Status and grading
+    status = models.CharField(max_length=20, choices=SUBMISSION_STATUS_CHOICES, default='draft')
+    score = models.FloatField(null=True, blank=True)
+    max_score = models.FloatField(null=True, blank=True)
+    feedback = models.TextField(blank=True)
+    graded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='graded_submissions')
+    graded_at = models.DateTimeField(null=True, blank=True)
+    
+    # Timing
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    is_late = models.BooleanField(default=False)
+    attempt_number = models.PositiveIntegerField(default=1)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-submitted_at']
+        verbose_name_plural = "Assignment Submissions"
+    
+    def save(self, *args, **kwargs):
+        # Check if submission is late
+        if self.lesson.assignment and self.lesson.assignment.due_date and self.submitted_at:
+            if self.submitted_at > self.lesson.assignment.due_date:
+                self.is_late = True
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.student.email} - {self.lesson.title} - {self.status}"
+
+
+class ModuleProgress(models.Model):
+    """Track student progress through modules"""
+    enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE, related_name='module_progress')
+    module = models.ForeignKey(Module, on_delete=models.CASCADE, related_name='student_progress')
+    progress = models.FloatField(default=0.0)  # Percentage 0-100
+    completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    first_accessed = models.DateTimeField(auto_now_add=True)
+    last_accessed = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['enrollment', 'module']
+        ordering = ['module__order']
+        verbose_name_plural = "Module Progress"
+    
+    def calculate_progress(self):
+        """Calculate progress based on completed lessons in this module"""
+        total_lessons = Lesson.objects.filter(module=self.module).count()
+        if total_lessons == 0:
+            self.progress = 100.0
+            self.completed = True
+            if not self.completed_at:
+                self.completed_at = timezone.now()
+        else:
+            completed_lessons = LessonProgress.objects.filter(
+                enrollment=self.enrollment,
+                lesson__module=self.module,
+                completed=True
+            ).count()
+            self.progress = round((completed_lessons / total_lessons) * 100, 2)
+            if completed_lessons == total_lessons:
+                self.completed = True
+                if not self.completed_at:
+                    self.completed_at = timezone.now()
+            else:
+                self.completed = False
+                self.completed_at = None
+        self.save(update_fields=['progress', 'completed', 'completed_at'])
+        return self.progress
+    
+    def __str__(self):
+        return f"{self.enrollment.student.email} - {self.module.title} - {self.progress}%"
+
+
+class FinalCourseAssessment(models.Model):
+    """Final assessment for a course"""
+    course = models.OneToOneField(Course, on_delete=models.CASCADE, related_name='final_assessment')
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    passing_score = models.PositiveIntegerField(default=70, help_text="Passing score percentage")
+    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum attempts allowed")
+    time_limit = models.PositiveIntegerField(default=60, help_text="Time limit in minutes")
+    randomize_questions = models.BooleanField(default=True)
+    show_correct_answers = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "Final Course Assessments"
+    
+    def __str__(self):
+        return f"Final Assessment - {self.course.title}"
+
+
+class AssessmentQuestion(models.Model):
+    """Questions for final course assessment"""
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+        ('fill-blank', 'Fill in Blank'),
+        ('short-answer', 'Short Answer'),
+    ]
+    
+    assessment = models.ForeignKey(FinalCourseAssessment, on_delete=models.CASCADE, related_name='questions')
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    question_text = models.TextField()
+    question_image = models.ImageField(upload_to='assessment_questions/', null=True, blank=True)
+    explanation = models.TextField(blank=True)
+    points = models.PositiveIntegerField(default=1)
+    order = models.PositiveIntegerField(default=0)
+    
+    # Fill in blank specific fields
+    blanks = models.JSONField(default=list, blank=True, help_text="List of correct answers for blanks")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']
+        verbose_name_plural = "Assessment Questions"
+    
+    def __str__(self):
+        return f"{self.assessment.course.title} - Question {self.order + 1}"
+
+
+class AssessmentAnswer(models.Model):
+    """Answers for assessment questions"""
+    question = models.ForeignKey(AssessmentQuestion, on_delete=models.CASCADE, related_name='answers')
+    answer_text = models.CharField(max_length=500)
+    answer_image = models.ImageField(upload_to='assessment_answers/', null=True, blank=True)
+    is_correct = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        ordering = ['order']
+        verbose_name_plural = "Assessment Answers"
+    
+    def __str__(self):
+        return f"{self.question.question_text[:50]} - {self.answer_text}"
+
+
+class AssessmentAttempt(models.Model):
+    """Student attempts for final course assessment"""
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='assessment_attempts')
+    assessment = models.ForeignKey(FinalCourseAssessment, on_delete=models.CASCADE, related_name='attempts')
+    enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE, related_name='assessment_attempts')
+    
+    score = models.FloatField(default=0.0)  # Percentage score (0-100)
+    total_questions = models.PositiveIntegerField(default=0)
+    correct_answers = models.PositiveIntegerField(default=0)
+    total_points = models.FloatField(default=0.0)
+    earned_points = models.FloatField(default=0.0)
+    passed = models.BooleanField(default=False)
+    
+    completed_at = models.DateTimeField(auto_now_add=True)
+    time_taken = models.DurationField(null=True, blank=True)
+    attempt_number = models.PositiveIntegerField(default=1)
+    
+    class Meta:
+        ordering = ['-completed_at']
+        verbose_name_plural = "Assessment Attempts"
+    
+    def calculate_score(self):
+        """Calculate the score based on earned points"""
+        if self.total_points > 0:
+            self.score = (self.earned_points / self.total_points) * 100
+            self.passed = self.score >= self.assessment.passing_score
+        else:
+            self.score = 0.0
+            self.passed = False
+        self.save()
+        return self.score
+    
+    def __str__(self):
+        return f"{self.student.email} - {self.assessment.course.title} - {self.score}% - Attempt {self.attempt_number}"
+
+
+class AssessmentResponse(models.Model):
+    """Student responses to assessment questions"""
+    attempt = models.ForeignKey(AssessmentAttempt, on_delete=models.CASCADE, related_name='responses')
+    question = models.ForeignKey(AssessmentQuestion, on_delete=models.CASCADE, related_name='student_responses')
+    answer = models.ForeignKey(AssessmentAnswer, on_delete=models.CASCADE, null=True, blank=True, related_name='selected_in_responses')
+    answer_text = models.TextField(blank=True, help_text="For fill-in-blank or short answer questions")
+    is_correct = models.BooleanField(default=False)
+    points_earned = models.FloatField(default=0.0)
+    
+    class Meta:
+        unique_together = ['attempt', 'question']
+        verbose_name_plural = "Assessment Responses"
+    
+    def __str__(self):
+        return f"{self.attempt.student.email} - {self.question.question_text[:50]}"
+
+    

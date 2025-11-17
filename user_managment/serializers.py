@@ -1,5 +1,6 @@
 from django.forms import ValidationError
 from rest_framework import serializers
+from collections import defaultdict
 
 from .models import *
 from django.contrib.auth.password_validation import validate_password
@@ -34,6 +35,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     
     @classmethod
     def get_token(cls, user):
+        token = super().get_token(user)
         token['first_name'] = user.first_name
      
         token['id'] = str(user.id)
@@ -92,8 +94,9 @@ User = get_user_model()
 
 class UserRegisterSerializer(serializers.ModelSerializer):
     email = serializers.CharField(required=True)
-    middle_name = serializers.CharField(required=True)
+    middle_name = serializers.CharField(required=False, allow_blank=True)
     first_name = serializers.CharField(required=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
     password = serializers.CharField(
         write_only=True, 
         required=True, 
@@ -103,7 +106,7 @@ class UserRegisterSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ('id', 'email', 'first_name','isLoggedIn', 'middle_name', 'password', 'password2')  # Include 'id' here
+        fields = ('id', 'email', 'first_name', 'last_name', 'middle_name', 'isLoggedIn', 'password', 'password2')
 
     def validate(self, attrs):
         # Check if passwords match
@@ -112,7 +115,7 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         
         # Optionally, check if the phone number already exists
         if User.objects.filter(email=attrs['email']).exists():
-            raise serializers.ValidationError({"email": "A user with this email number already exists."})
+            raise serializers.ValidationError({"email": "A user with this email already exists."})
         
         return attrs
 
@@ -120,18 +123,17 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         # Remove password2 from the validated data as it's not needed for user creation
         validated_data.pop('password2', None)
         
-        # Fetch the default role (or handle the case where no role exists)
-        role = Role.objects.first()
-        if not role:
-            raise serializers.ValidationError({"role": "No role found. Please create a role first."})
-        print("Ready to save user  !!!!!!!")
+        # Get or create the default "Student" role
+        role, _ = Role.objects.get_or_create(name='student')
+
         # Create the user
         user = User.objects.create(
             email=validated_data['email'],
             first_name=validated_data['first_name'],
-            middle_name=validated_data['middle_name'],
+            middle_name=validated_data.get('middle_name', ''),
+            last_name=validated_data.get('last_name', ''),
             role=role,
-            is_staff=True  # Set is_staff to True if this is intended
+            is_staff=False  # Students should not be staff
         )
         
         # Set the password securely
@@ -147,18 +149,46 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.CharField()
     password = serializers.CharField()
-  
+
     def validate(self, data):
         email = data.get('email')
         password = data.get('password')
-        print(f"Logge in tried with ===>  {email } and {password }")
+
         if not email or not password:
-            raise serializers.ValidationError("email and password are required.")
-        
+            raise serializers.ValidationError("Email and password are required.")
+
+        # Check if user exists first
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("No account found with this email.")
+
+        # Now check if the user is active
+        if not user.is_active:
+            raise serializers.ValidationError(
+                "Your account is not activated. Please verify your email."
+            )
+
+        # If active, authenticate
         user = authenticate(email=email, password=password)
-      
         if not user:
-            raise serializers.ValidationError("Invalid email or password.")
+            raise serializers.ValidationError("Incorrect password. Please try again.")
+
+        return {'user': user}
+
+
+# Exclude sensitive information from user details
+class UserDetailSerializer(serializers.ModelSerializer):
+    role = RoleSerializer(read_only=True)
+    class Meta:
+        model = User
+        exclude = ('password','isLoggedIn', 'is_superuser', 'is_staff', 'groups', 'user_permissions')
         
-        return {'user': user}    
-    
+        
+# serializers.py
+from rest_framework import serializers
+
+class OTPVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp_code = serializers.CharField(max_length=6)
+        
