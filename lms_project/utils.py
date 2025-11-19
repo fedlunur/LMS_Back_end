@@ -60,6 +60,9 @@ def get_model_mapping():
         "event": courses_models.Event,
         "eventtype": courses_models.EventType,
         "notification": courses_models.Notification,
+        "questionbank": courses_models.QuestionBank,
+        "questionbankquestion": courses_models.QuestionBankQuestion,
+        "questionbankanswer": courses_models.QuestionBankAnswer,
 
         #  Chat 
   

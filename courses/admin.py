@@ -13,7 +13,7 @@ from .models import (
     CourseOverview, CourseFAQ, AssignmentSubmission,
     FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer,
     AssessmentAttempt, AssessmentResponse, Event, EventType,
-    Notification,
+    Notification, QuestionBank, QuestionBankQuestion, QuestionBankAnswer,
 )
 
 
@@ -85,6 +85,18 @@ class LessonProgressInline(admin.TabularInline):
 class AssessmentAnswerInline(admin.TabularInline):
     model = AssessmentAnswer
     extra = 2
+
+
+class QuestionBankAnswerInline(admin.TabularInline):
+    model = QuestionBankAnswer
+    extra = 1
+    fields = ("answer_text", "answer_image", "is_correct", "order")
+
+
+class QuestionBankQuestionInline(admin.TabularInline):
+    model = QuestionBankQuestion
+    extra = 1
+    fields = ("question_type", "question_text", "question_image", "explanation", "points", "order", "blanks")
 
 
 # ================================
@@ -463,3 +475,90 @@ class NotificationAdmin(admin.ModelAdmin):
             "fields": ("created_at", "updated_at")
         }),
     )
+
+
+# ================================
+# QUESTION BANK
+# ================================
+
+@admin.register(QuestionBank)
+class QuestionBankAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "teacher", "course", "is_active", "total_questions", "created_at")
+    list_filter = ("is_active", "course", "created_at")
+    search_fields = ("name", "description", "teacher__email", "course__title")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at", "total_questions")
+    autocomplete_fields = ("teacher", "course")
+    inlines = [QuestionBankQuestionInline]
+    
+    fieldsets = (
+        ("Question Bank Information", {
+            "fields": ("name", "description", "teacher", "course")
+        }),
+        ("Status", {
+            "fields": ("is_active",)
+        }),
+        ("Statistics", {
+            "fields": ("total_questions",),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+    
+    def total_questions(self, obj):
+        return obj.questions.count()
+    total_questions.short_description = "Total Questions"
+
+
+@admin.register(QuestionBankQuestion)
+class QuestionBankQuestionAdmin(admin.ModelAdmin):
+    list_display = ("id", "question_bank", "question_type", "question_text_snippet", "points", "order", "created_at")
+    list_filter = ("question_type", "question_bank", "created_at")
+    search_fields = ("question_text", "question_bank__name")
+    ordering = ("question_bank", "order", "created_at")
+    autocomplete_fields = ("question_bank",)
+    inlines = [QuestionBankAnswerInline]
+    
+    fieldsets = (
+        ("Question Information", {
+            "fields": ("question_bank", "question_type", "question_text", "question_image", "explanation", "points", "order")
+        }),
+        ("Fill in Blank Settings", {
+            "fields": ("blanks",),
+            "classes": ("collapse",),
+            "description": "For fill-in-blank and short-answer questions"
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+    readonly_fields = ("created_at", "updated_at")
+    
+    def question_text_snippet(self, obj):
+        txt = obj.question_text
+        return txt[:50] + ("..." if len(txt) > 50 else "")
+    question_text_snippet.short_description = "Question"
+
+
+@admin.register(QuestionBankAnswer)
+class QuestionBankAnswerAdmin(admin.ModelAdmin):
+    list_display = ("id", "question", "answer_text_snippet", "is_correct", "order")
+    list_filter = ("is_correct", "question__question_bank")
+    search_fields = ("answer_text", "question__question_text", "question__question_bank__name")
+    ordering = ("question", "order")
+    autocomplete_fields = ("question",)
+    
+    fieldsets = (
+        ("Answer Information", {
+            "fields": ("question", "answer_text", "answer_image", "is_correct", "order")
+        }),
+    )
+    
+    def answer_text_snippet(self, obj):
+        txt = obj.answer_text
+        return txt[:50] + ("..." if len(txt) > 50 else "")
+    answer_text_snippet.short_description = "Answer"

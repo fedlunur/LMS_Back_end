@@ -1869,3 +1869,99 @@ class Notification(models.Model):
     def __str__(self):
         return f"{self.user.email} - {self.title} ({'read' if self.is_read else 'unread'})"
 
+
+# ---------------------------------------------------------------------------
+# Question Bank
+# ---------------------------------------------------------------------------
+
+
+class QuestionBank(models.Model):
+    """Question bank for teachers to store and reuse questions across courses"""
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name='question_banks')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    course = models.ForeignKey(
+        Course, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='question_banks',
+        help_text="Optional: Associate with a specific course. If null, available for all courses by this teacher."
+    )
+    is_active = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "Question Banks"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['teacher', '-created_at']),
+            models.Index(fields=['course', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} - {self.teacher.email}"
+    
+    @property
+    def total_questions(self):
+        """Return total number of questions in this bank"""
+        return self.questions.count()
+
+
+class QuestionBankQuestion(models.Model):
+    """Questions stored in a question bank"""
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+        ('fill-blank', 'Fill in Blank'),
+        ('short-answer', 'Short Answer'),
+    ]
+    
+    question_bank = models.ForeignKey(QuestionBank, on_delete=models.CASCADE, related_name='questions')
+    question_type = models.CharField(max_length=30, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    question_text = models.TextField()
+    question_image = models.ImageField(upload_to='question_bank_questions/', null=True, blank=True)
+    explanation = models.TextField(blank=True)
+    points = models.PositiveIntegerField(default=1, help_text="Points the question carries")
+    order = models.PositiveIntegerField(default=0)
+    
+    # Fill in blank specific fields
+    blanks = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of correct answers for blanks. For multiple blanks, use list of strings."
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']
+        verbose_name_plural = "Question Bank Questions"
+        indexes = [
+            models.Index(fields=['question_bank', 'order']),
+        ]
+    
+    def __str__(self):
+        return f"{self.question_bank.name} - Question {self.order + 1}"
+
+
+class QuestionBankAnswer(models.Model):
+    """Answers for question bank questions"""
+    question = models.ForeignKey(QuestionBankQuestion, on_delete=models.CASCADE, related_name='answers')
+    answer_text = models.CharField(max_length=500)
+    answer_image = models.ImageField(upload_to='question_bank_answers/', null=True, blank=True)
+    is_correct = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        ordering = ['order']
+        verbose_name_plural = "Question Bank Answers"
+    
+    def __str__(self):
+        return f"{self.question.question_text[:50]} - {self.answer_text}"
+
+
+# QuizBank

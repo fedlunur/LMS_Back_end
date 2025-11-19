@@ -22,7 +22,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         sensitive = {
             'enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt',
             'assignmentsubmission', 'assessmentattempt', 'certificate',
-            'conversation', 'message', 'courserating'
+            'conversation', 'message', 'courserating', 'questionbank',
+            'questionbankquestion', 'questionbankanswer'
         }
 
         if self.action in ["list", "retrieve"]:
@@ -57,7 +58,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         # Apply user-based filtering for restricted models
         if model_name in [
             'enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt',
-            'assignmentsubmission', 'assessmentattempt', 'certificate', 'courserating'
+            'assignmentsubmission', 'assessmentattempt', 'certificate', 'courserating',
+            'questionbank', 'questionbankquestion', 'questionbankanswer'
         ]:
             if not self.request.user.is_staff and self.request.user.is_authenticated:
                 user = self.request.user
@@ -71,6 +73,12 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(enrollment__student=user)
                 elif model_name == 'courserating':
                     queryset = queryset.filter(student=user)
+                elif model_name == 'questionbank':
+                    queryset = queryset.filter(teacher=user)
+                elif model_name == 'questionbankquestion':
+                    queryset = queryset.filter(question_bank__teacher=user)
+                elif model_name == 'questionbankanswer':
+                    queryset = queryset.filter(question__question_bank__teacher=user)
         
         # Event filtering: students see events for enrolled courses, instructors see their courses
         if model_name == 'event' and self.request.user.is_authenticated:

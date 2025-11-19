@@ -115,6 +115,15 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                             fields = ["id", "answer_text", "answer_image", "is_correct", "order"]
                     self.fields[related_name] = QuizAnswerSerializer(many=True, read_only=True)
                     continue
+                
+                # Question bank answers
+                elif related_model.__name__ == "QuestionBankAnswer" and model.__name__ == "QuestionBankQuestion":
+                    class QuestionBankAnswerSerializer(serializers.ModelSerializer):
+                        class Meta:
+                            model = related_model
+                            fields = ["id", "answer_text", "answer_image", "is_correct", "order"]
+                    self.fields[related_name] = QuestionBankAnswerSerializer(many=True, read_only=True)
+                    continue
 
         # ----------------- INPUT ALIASES FOR FRONTEND COMPAT -----------------
         # Allow creating QuizQuestion with 'type' and 'question' aliases
@@ -123,6 +132,13 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
             self.fields.setdefault("question", serializers.CharField(source="question_text", required=False))
         # Allow creating QuizAnswer with 'text' alias
         if self.Meta.model.__name__ == "QuizAnswer":
+            self.fields.setdefault("text", serializers.CharField(source="answer_text", required=False))
+        # Allow creating QuestionBankQuestion with 'type' and 'question' aliases
+        if self.Meta.model.__name__ == "QuestionBankQuestion":
+            self.fields.setdefault("type", serializers.CharField(source="question_type", required=False))
+            self.fields.setdefault("question", serializers.CharField(source="question_text", required=False))
+        # Allow creating QuestionBankAnswer with 'text' alias
+        if self.Meta.model.__name__ == "QuestionBankAnswer":
             self.fields.setdefault("text", serializers.CharField(source="answer_text", required=False))
 
     # ----------------- CUSTOM REPRESENTATION (CLEAN OUTPUT) -----------------

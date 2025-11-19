@@ -54,6 +54,15 @@ from courses.views import (
     mark_notification_read_view,
     mark_all_notifications_read_view,
     get_notification_view,
+    # Question bank views
+    question_banks_list_create_view,
+    question_bank_detail_view,
+    question_bank_questions_list_create_view,
+    question_bank_question_detail_view,
+    export_questions_to_quiz_lesson_view,
+    export_questions_to_assessment_view,
+    import_questions_from_quiz_lesson_view,
+    import_questions_from_assessment_view,
 )
 from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
@@ -140,6 +149,9 @@ for name in [
     "event",
     "eventtype",
     "notification",
+    "questionbank",
+    "questionbankquestion",
+    "questionbankanswer",
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 
@@ -236,6 +248,27 @@ urlpatterns = [
     re_path(r'^api/teacher/(?P<user_id>\d+)/$', TeacherDetailView.as_view(), name='teacher_detail'),
     re_path(r'^api/user/(?P<user_id>\d+)/?$', UserDetailView.as_view(), name='user_detail'),
     
+    # Question Bank endpoints (place before router to ensure proper matching)
+    # With /api/ prefix (standard)
+    re_path(r'^api/question-banks/?$', question_banks_list_create_view, name='question_banks_list_create'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/?$', question_bank_detail_view, name='question_bank_detail'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/questions/?$', question_bank_questions_list_create_view, name='question_bank_questions_list_create'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/questions/(?P<question_id>\d+)/?$', question_bank_question_detail_view, name='question_bank_question_detail'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/export-to-quiz/(?P<lesson_id>\d+)/?$', export_questions_to_quiz_lesson_view, name='export_questions_to_quiz_lesson'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/export-to-assessment/(?P<course_id>\d+)/?$', export_questions_to_assessment_view, name='export_questions_to_assessment'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/import-from-quiz/(?P<lesson_id>\d+)/?$', import_questions_from_quiz_lesson_view, name='import_questions_from_quiz_lesson'),
+    re_path(r'^api/question-banks/(?P<bank_id>\d+)/import-from-assessment/(?P<course_id>\d+)/?$', import_questions_from_assessment_view, name='import_questions_from_assessment'),
+    
+    # Without /api/ prefix (fallback for reverse proxy scenarios)
+    re_path(r'^question-banks/?$', question_banks_list_create_view, name='question_banks_list_create_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/?$', question_bank_detail_view, name='question_bank_detail_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/questions/?$', question_bank_questions_list_create_view, name='question_bank_questions_list_create_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/questions/(?P<question_id>\d+)/?$', question_bank_question_detail_view, name='question_bank_question_detail_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/export-to-quiz/(?P<lesson_id>\d+)/?$', export_questions_to_quiz_lesson_view, name='export_questions_to_quiz_lesson_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/export-to-assessment/(?P<course_id>\d+)/?$', export_questions_to_assessment_view, name='export_questions_to_assessment_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/import-from-quiz/(?P<lesson_id>\d+)/?$', import_questions_from_quiz_lesson_view, name='import_questions_from_quiz_lesson_no_prefix'),
+    re_path(r'^question-banks/(?P<bank_id>\d+)/import-from-assessment/(?P<course_id>\d+)/?$', import_questions_from_assessment_view, name='import_questions_from_assessment_no_prefix'),
+
     # Generics
     re_path("api/", include(router.urls)),
     re_path("api/constants/", constants_view, name="constants"),
