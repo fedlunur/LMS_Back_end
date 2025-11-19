@@ -9,6 +9,7 @@ from .progress_service import *
 from .assessment_service import *
 from .assignment_service import *
 from .analytics_service import *
+from .question_bank_service import *
 
 # __all__ definition to specify what is exported when using 'from ... import *'
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     'assessment_service',
     'assignment_service',
     'analytics_service',
+    'question_bank_service',
 ]
