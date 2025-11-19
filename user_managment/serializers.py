@@ -216,4 +216,7 @@ class UserDetailSerializer(serializers.ModelSerializer):
             else:
                 # Relative path, prepend MEDIA_URL
                 return f"{settings.MEDIA_URL.rstrip('/')}/{photo_path.lstrip('/')}"
+                
+class GoogleLoginSerializer(serializers.Serializer):
+    access_token = serializers.CharField(required=True)
 

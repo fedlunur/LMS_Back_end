@@ -158,6 +158,7 @@ urlpatterns = [
     re_path(r'^api/forgot-password/request/?$', ForgotPasswordRequest.as_view(), name='forgot_password_request'),
     re_path(r'^api/forgot-password/reset/?$', ForgotPasswordReset.as_view(), name='forgot_password_reset'),
     re_path(r'^api/login/?$', UserLogin.as_view(), name='login'),
+    re_path(r'^api/google-login/?$', GoogleLoginView.as_view(), name='google_login'),
     re_path(r'^api/user_logout/?$', UserLogout.as_view(), name='user_logout'),
     re_path(r'^api/mark-lesson-completed/(?P<lesson_id>\d+)/$', mark_lesson_completed_view, name='mark_lesson_completed'),
     

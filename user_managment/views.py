@@ -17,11 +17,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.db import IntegrityError
 
-from .models import EmailVerificationToken, PasswordResetToken, User
+from .models import EmailVerificationToken, PasswordResetToken, User, Role, UserRole
 from .serializers import *
 from .services.email_verification import send_email_verification
 from .services.password_reset import send_password_reset_email
 from django.contrib.auth.password_validation import validate_password
+import requests
 
 logger = logging.getLogger(__name__)
 class TokenCheckView(APIView):
@@ -667,5 +668,94 @@ class UserDetailView(APIView):
             'success': True,
             'data': UserDetailSerializer(user, context={'request': request}).data,
             'message': 'User profile retrieved.'
+        }, status=status.HTTP_200_OK)
+
+class GoogleLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = GoogleLoginSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        access_token = serializer.validated_data['access_token']
+        
+        # Verify token with Google
+        user_info_url = "https://www.googleapis.com/oauth2/v3/userinfo"
+        try:
+            response = requests.get(user_info_url, params={'access_token': access_token})
+            response.raise_for_status()
+        except requests.RequestException as e:
+            return Response({"error": "Failed to validate token with Google"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        user_data = response.json()
+        email = user_data.get('email')
+        picture = user_data.get('picture')
+        first_name = user_data.get('given_name', '')
+        last_name = user_data.get('family_name', '')
+        
+        if not email:
+            return Response({"error": "Email not found in Google account"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            user = User.objects.get(email=email)
+            # If user exists but doesn't have a role, assign student role
+            if not user.role:
+                role, _ = Role.objects.get_or_create(name='student')
+                user.role = role
+                user.save()
+            
+            # Update photo if missing
+            if not user.photo and picture:
+                user.photo = picture
+                user.save()
+
+            # Update name if missing
+            if not user.first_name and first_name:
+                user.first_name = first_name
+                user.save()
+            if not user.last_name and last_name:
+                user.last_name = last_name
+                user.save()
+            
+            # Ensure UserRole exists for the primary role
+            if user.role and not UserRole.objects.filter(user=user, role=user.role).exists():
+                UserRole.objects.create(user=user, role=user.role)
+                    
+        except User.DoesNotExist:
+            # Create new user
+            # Get or create student role
+            role, _ = Role.objects.get_or_create(name='student')
+            
+            user = User.objects.create(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                role=role,
+                photo=picture,
+                is_email_verified=True,
+                enabled=True,
+                username=email
+            )
+            user.set_unusable_password()
+            user.save()
+            
+            # Create UserRole entry
+            UserRole.objects.create(user=user, role=role)
+        
+        # Generate tokens using MyTokenObtainPairSerializer to include custom claims
+        refresh = MyTokenObtainPairSerializer.get_token(user)
+        
+        return Response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': user.role.name if user.role else None,
+                'photo': user.photo
+            }
         }, status=status.HTTP_200_OK)
 
