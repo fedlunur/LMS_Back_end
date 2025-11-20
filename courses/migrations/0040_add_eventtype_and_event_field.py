@@ -30,43 +30,28 @@ class Migration(migrations.Migration):
                 'ordering': ['display_name'],
             },
         ),
-        # Tell Django about Event model (table already exists)
-        migrations.SeparateDatabaseAndState(
-            database_operations=[],  # Table already exists, do nothing
-            state_operations=[
-                migrations.CreateModel(
-                    name='Event',
-                    fields=[
-                        ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                        ('title', models.CharField(max_length=255)),
-                        ('description', models.TextField(blank=True, null=True)),
-                        ('start_datetime', models.DateTimeField()),
-                        ('end_datetime', models.DateTimeField(blank=True, null=True)),
-                        ('created_at', models.DateTimeField(auto_now_add=True)),
-                        ('updated_at', models.DateTimeField(auto_now=True)),
-                        ('course', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='events', to='courses.course')),
-                    ],
-                    options={
-                        'verbose_name_plural': 'Events',
-                        'ordering': ['start_datetime'],
-                    },
-                ),
+        # Create Event model (create table in DB and add to state)
+        migrations.CreateModel(
+            name='Event',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('title', models.CharField(max_length=255)),
+                ('description', models.TextField(blank=True, null=True)),
+                ('start_datetime', models.DateTimeField()),
+                ('end_datetime', models.DateTimeField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('course', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='events', to='courses.course')),
             ],
+            options={
+                'verbose_name_plural': 'Events',
+                'ordering': ['start_datetime'],
+            },
         ),
-        # Add event_type field to Event
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AddField(
-                    model_name='event',
-                    name='event_type',
-                    field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='events', to='courses.eventtype'),
-                ),
-            ],
-            database_operations=[
-                migrations.RunSQL(
-                    sql="ALTER TABLE courses_event ADD COLUMN event_type_id INTEGER;",
-                    reverse_sql="ALTER TABLE courses_event DROP COLUMN event_type_id;",
-                ),
-            ],
+        # Add event_type field to Event (FK to EventType)
+        migrations.AddField(
+            model_name='event',
+            name='event_type',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='events', to='courses.eventtype'),
         ),
     ]
