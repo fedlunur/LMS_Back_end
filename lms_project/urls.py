@@ -63,6 +63,9 @@ from courses.views import (
     export_questions_to_assessment_view,
     import_questions_from_quiz_lesson_view,
     import_questions_from_assessment_view,
+    # Public views
+    get_public_statistics_view,
+    get_top_rated_courses_view,
 )
 from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
@@ -173,6 +176,10 @@ urlpatterns = [
     re_path(r'^api/google-login/?$', GoogleLoginView.as_view(), name='google_login'),
     re_path(r'^api/user_logout/?$', UserLogout.as_view(), name='user_logout'),
     re_path(r'^api/mark-lesson-completed/(?P<lesson_id>\d+)/$', mark_lesson_completed_view, name='mark_lesson_completed'),
+    
+    # Public endpoints
+    re_path(r'^api/public/statistics/?$', get_public_statistics_view, name='public_statistics'),
+    re_path(r'^api/public/top-rated-courses/?$', get_top_rated_courses_view, name='top_rated_courses'),
     
     # Course browsing endpoints (for all authenticated users)
     re_path(r'^api/published-courses/$', get_published_courses_view, name='published_courses'),
