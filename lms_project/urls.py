@@ -29,6 +29,7 @@ from courses.views import (
     get_teacher_course_enrollments_detail_view,
     get_teacher_students_overview_view,
     get_teacher_students_list_view,
+    get_instructor_courses_view,
     get_course_students_view,
     get_student_progress_view,
     get_assignment_submissions_view,
@@ -222,6 +223,7 @@ urlpatterns = [
     re_path(r'^api/student-analytics/$', get_student_analytics_view, name='student_analytics'),
     
     # Teacher/Instructor endpoints
+    re_path(r'^api/teacher/courses/?$', get_instructor_courses_view, name='teacher_courses'),
     re_path(r'^api/teacher/dashboard/overview/?$', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview'),
     re_path(r'^api/teacher/dashboard/overview/(?P<course_id>\d+)/?$', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview_by_course'),
     path('api/teacher/dashboard/overview/<int:course_id>/', get_teacher_dashboard_overview_view, name='teacher_dashboard_overview_by_course_path'),

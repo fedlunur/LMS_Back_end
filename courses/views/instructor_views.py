@@ -359,3 +359,25 @@ def get_teacher_students_list_view(request):
         "data": students,
         "message": "Instructor students list retrieved successfully."
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_instructor_courses_view(request):
+    """
+    Get all courses created by the instructor (published and draft).
+    """
+    user = request.user
+    # Filter courses where the user is the instructor and status is published or draft
+    courses = Course.objects.filter(
+        instructor=user,
+        status__in=['published', 'draft']
+    ).order_by('-updated_at')
+    
+    serializer = DynamicFieldSerializer(courses, many=True, model_name="course")
+    
+    return Response({
+        "success": True,
+        "data": serializer.data,
+        "message": "Instructor courses retrieved successfully."
+    }, status=status.HTTP_200_OK)
