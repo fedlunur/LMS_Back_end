@@ -5,6 +5,7 @@ from rest_framework import status
 from django.db.models import Count
 from courses.models import Course, Enrollment, Lesson, LessonProgress, Module
 from courses.services.access_service import is_lesson_accessible, is_module_accessible
+from courses.services.pagination import paginate_queryset_or_list
 
 
 @api_view(['GET'])
@@ -39,7 +40,8 @@ def list_course_modules_view(request, course_id):
             'lesson_count': m.lesson_count,
             'unlocked': is_unlocked,
         })
-    return Response({"success": True, "data": data, "message": "Modules retrieved successfully."}, status=status.HTTP_200_OK)
+    # Apply pagination
+    return paginate_queryset_or_list(request, data)
 
 
 
@@ -82,5 +84,6 @@ def list_module_lessons_view(request, module_id):
             'unlocked': unlocked,
             'is_completed': is_completed,
         })
-    return Response({"success": True, "data": data, "message": "Lessons retrieved successfully."}, status=status.HTTP_200_OK)
+    # Apply pagination
+    return paginate_queryset_or_list(request, data)
 

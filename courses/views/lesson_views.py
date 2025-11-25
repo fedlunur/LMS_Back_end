@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from courses.services.access_service import is_lesson_accessible
 from courses.services.progress_service import mark_lesson_completed
+from courses.services.pagination import paginate_queryset_or_list
 from courses.models import Course, Lesson, Enrollment, LessonProgress, VideoCheckpointQuiz, VideoCheckpointResponse
 from ..serializers import DynamicFieldSerializer
 
@@ -134,7 +135,8 @@ def list_course_lessons_view(request, course_id):
             'unlocked': unlocked,
             'is_completed': is_completed,
         })
-    return Response({"success": True, "data": data, "message": "Lessons retrieved successfully."}, status=status.HTTP_200_OK)
+    # Apply pagination
+    return paginate_queryset_or_list(request, data)
 
 
 @api_view(['POST'])

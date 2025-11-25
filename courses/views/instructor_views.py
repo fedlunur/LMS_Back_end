@@ -1,6 +1,7 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from courses.models import Course, Enrollment, Lesson, LessonProgress, Module, ModuleProgress, QuizAttempt, AssignmentSubmission, CourseQA, CourseRating, Certificate, LessonResource, CourseResource, AssignmentLesson
+from courses.services.pagination import paginate_queryset_or_list
 from rest_framework.response import Response
 from rest_framework import status
 from courses.serializers import DynamicFieldSerializer
@@ -354,11 +355,8 @@ def get_teacher_students_list_view(request):
 
     students.sort(key=lambda s: (s["last_accessed"] or timezone.datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
 
-    return Response({
-        "success": True,
-        "data": students,
-        "message": "Instructor students list retrieved successfully."
-    }, status=status.HTTP_200_OK)
+    # Apply pagination
+    return paginate_queryset_or_list(request, students)
 
 
 @api_view(['GET'])

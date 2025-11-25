@@ -328,6 +328,13 @@ EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES = int(
 )
 
 
+# -------------------- PAGINATION SETTINGS --------------------
+# Default number of items per page for list endpoints
+DEFAULT_PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE", "9"))
+# Maximum number of items per page (can be overridden via query parameter)
+MAX_PAGE_SIZE = int(os.getenv("MAX_PAGE_SIZE", "100"))
+
+
 # -------------------- GEMINI AI CHATBOT --------------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash")

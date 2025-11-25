@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 from courses.models import Enrollment, Lesson, Lesson, LessonProgress, Module, ModuleProgress
+from courses.services.pagination import paginate_queryset_or_list
 from rest_framework.response import Response
 from rest_framework import status
 from ..serializers import DynamicFieldSerializer
@@ -46,11 +47,8 @@ def get_enrolled_courses_view(request):
         
         enrollment_data.append(enrollment_dict)
     
-    return Response({
-        "success": True,
-        "data": enrollment_data,
-        "message": "Enrolled courses retrieved successfully."
-    }, status=status.HTTP_200_OK)
+    # Apply pagination
+    return paginate_queryset_or_list(request, enrollment_data)
 
 
 

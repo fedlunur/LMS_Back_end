@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 from courses.services.enrollment_service import enroll_user_in_course
+from courses.services.pagination import paginate_queryset_or_list
 from ..serializers import DynamicFieldSerializer
 from rest_framework.response import Response
 from rest_framework import status
@@ -80,11 +81,8 @@ def get_published_courses_view(request):
         
         courses_data.append(course_dict)
     
-    return Response({
-        "success": True,
-        "data": courses_data,
-        "message": "Published courses retrieved successfully."
-    }, status=status.HTTP_200_OK)
+    # Apply pagination
+    return paginate_queryset_or_list(request, courses_data)
 
 
 @api_view(['GET'])

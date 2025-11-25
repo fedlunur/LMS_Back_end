@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 
 from courses.models import QuestionBank, QuestionBankQuestion, Course, Lesson, FinalCourseAssessment
 from courses.serializers import DynamicFieldSerializer
+from courses.services.pagination import paginate_queryset_or_list
 from courses.services.question_bank_service import (
     get_question_banks,
     create_question_bank,
@@ -43,11 +44,8 @@ def question_banks_list_create_view(request):
         question_banks = get_question_banks(request.user, course_id=course_id)
         serializer = DynamicFieldSerializer(question_banks, many=True, model_name="questionbank")
         
-        return Response({
-            "success": True,
-            "data": serializer.data,
-            "message": "Question banks retrieved successfully."
-        }, status=status.HTTP_200_OK)
+        # Apply pagination
+        return paginate_queryset_or_list(request, serializer.data)
     
     # POST: Create new question bank
     if request.method == 'POST':
@@ -155,11 +153,8 @@ def question_bank_questions_list_create_view(request, bank_id):
         questions = get_question_bank_questions(question_bank)
         serializer = DynamicFieldSerializer(questions, many=True, model_name="questionbankquestion")
         
-        return Response({
-            "success": True,
-            "data": serializer.data,
-            "message": "Questions retrieved successfully."
-        }, status=status.HTTP_200_OK)
+        # Apply pagination
+        return paginate_queryset_or_list(request, serializer.data)
     
     # POST: Create new question
     if request.method == 'POST':
