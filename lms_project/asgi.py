@@ -4,7 +4,7 @@ from channels.routing import ProtocolTypeRouter, URLRouter # type: ignore
 from channels.auth import AuthMiddlewareStack # type: ignore
 from chat.routing import *  # Import your routing file
 from django.urls import path
-print("asgi configurations !!!!  ")
+
 # Use the actual settings module for this project
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'lms_project.settings')
 

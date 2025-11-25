@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:13
+    image: postgres:16-alpine
     networks:
       - lmsbackend_my_network
     environment:
@@ -12,6 +12,11 @@ services:
     ports:
       - "5432:5432"
     restart: always
+    healthcheck:                      
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   pgadmin:
     image: dpage/pgadmin4
@@ -22,13 +27,20 @@ services:
       - "8080:80"
     networks:
       - lmsbackend_my_network
+    depends_on:
+      - db
 
   redis:
-    image: redis:7
+    image: redis:7-alpine             
     command: ["redis-server", "--appendonly", "yes"]
     networks:
       - lmsbackend_my_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   web:
     build: .
@@ -36,8 +48,10 @@ services:
     networks:
       - lmsbackend_my_network
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy   
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     volumes:

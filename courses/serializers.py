@@ -1,8 +1,9 @@
 from django.apps import apps
-from django.db.models import ForeignKey, ManyToOneRel
+from django.db.models import ForeignKey, ManyToOneRel, FileField, ImageField
 from rest_framework import serializers
 from user_managment.models import User
 from user_managment.serializers import UserDetailSerializer
+from django.conf import settings
 
 # Import your attachment models
 from courses.models import *  # Add more if needed
@@ -63,6 +64,17 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
         self.Meta.fields = "__all__"
         super().__init__(*args, **kwargs)
 
+        # ----------------- ADD WRITABLE ATTACHMENTS FIELD -----------------
+        # For models that support attachments, add a writable field to accept file uploads
+        # We do this ONLY if we are processing input data (write mode)
+        # Otherwise (read mode), we let the loop below handle it as a nested serializer
+        if hasattr(self, 'initial_data') and model.__name__ in LESSON_TYPES_WITH_ATTACHMENTS:
+            self.fields["attachments"] = serializers.ListField(
+                child=serializers.FileField(),
+                required=False,
+                write_only=True
+            )
+
         # ----------------- ADD MODEL PROPERTIES AS READ-ONLY -----------------
         for attr_name in dir(model):
             attr = getattr(model, attr_name, None)
@@ -91,10 +103,38 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
 
                 # Attachments
                 if "attachment" in related_model.__name__.lower() or f.name == "attachments":
+                    # Skip if we are in write mode and have already defined a writable attachments field
+                    if related_name == "attachments" and hasattr(self, 'initial_data') and model.__name__ in LESSON_TYPES_WITH_ATTACHMENTS:
+                        continue
+
                     class AttachmentSerializer(serializers.ModelSerializer):
                         class Meta:
                             model = related_model
                             fields = ["id", "file", "uploaded_at"] if hasattr(related_model, "file") else "__all__"
+                        
+                        def to_representation(self, instance):
+                            data = super().to_representation(instance)
+                            # Convert file URLs to /media/... format
+                            if "file" in data and data["file"]:
+                                file_url = data["file"]
+                                if isinstance(file_url, str):
+                                    # Extract /media/... path from full URL
+                                    if file_url.startswith("http"):
+                                        # Full URL like http://localhost:8888/media/...
+                                        if "/media/" in file_url:
+                                            media_index = file_url.find("/media/")
+                                            data["file"] = file_url[media_index:]
+                                        else:
+                                            # Just use the path part
+                                            from urllib.parse import urlparse
+                                            parsed = urlparse(file_url)
+                                            data["file"] = parsed.path if parsed.path else f"/media/{file_url}"
+                                    elif not file_url.startswith("/media/"):
+                                        # Relative path without /media/
+                                        data["file"] = f"/media/{file_url.lstrip('/')}"
+                                    # If already starts with /media/, keep it as is
+                            return data
+                    
                     self.fields[related_name] = AttachmentSerializer(many=True, read_only=True)
                     continue
 
@@ -144,6 +184,30 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
     # ----------------- CUSTOM REPRESENTATION (CLEAN OUTPUT) -----------------
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        model = instance.__class__
+
+        # Convert file field URLs to /media/... format (applies to all file fields dynamically)
+        for field in model._meta.get_fields():
+            if isinstance(field, (FileField, ImageField)):
+                field_name = field.name
+                if field_name in data and data[field_name]:
+                    file_url = data[field_name]
+                    if isinstance(file_url, str):
+                        # Extract /media/... path from full URL
+                        if file_url.startswith("http"):
+                            # Full URL like http://localhost:8888/media/...
+                            if "/media/" in file_url:
+                                media_index = file_url.find("/media/")
+                                data[field_name] = file_url[media_index:]
+                            else:
+                                # Just use the path part
+                                from urllib.parse import urlparse
+                                parsed = urlparse(file_url)
+                                data[field_name] = parsed.path if parsed.path else f"/media/{file_url}"
+                        elif not file_url.startswith("/media/"):
+                            # Relative path without /media/
+                            data[field_name] = f"/media/{file_url.lstrip('/')}"
+                        # If already starts with /media/, keep it as is
 
         # Hide checkpoint quiz correct answers from non-staff
         if instance.__class__.__name__ == "VideoCheckpointQuiz":
@@ -221,9 +285,16 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
             )
             if attachments and hasattr(obj, "attachments"):
                 obj.attachments.all().delete()
-                for f in attachments:
-                    related_model = obj._meta.get_field("attachments").related_model
-                    related_model.objects.create(**{obj._meta.model_name: obj, "file": f})
+                # Find the correct FK field name in attachment model
+                attachment_model = obj._meta.get_field("attachments").related_model
+                fk_field_name = None
+                for field in attachment_model._meta.get_fields():
+                    if isinstance(field, ForeignKey) and field.related_model == model:
+                        fk_field_name = field.name
+                        break
+                if fk_field_name:
+                    for f in attachments:
+                        attachment_model.objects.create(**{fk_field_name: obj, "file": f})
             return obj
 
         # For other models that still require 'lesson' FK (e.g., QuizQuestion), put it back
@@ -260,8 +331,14 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
 
         if attachments and hasattr(instance, "attachments"):
             instance.attachments.all().delete()
-            for f in attachments:
-                related_model = instance._meta.get_field("attachments").related_model
-                related_model.objects.create(**{instance._meta.model_name: instance, "file": f})
+            attachment_model = instance._meta.get_field("attachments").related_model
+            fk_field_name = None
+            for field in attachment_model._meta.get_fields():
+                if isinstance(field, ForeignKey) and field.related_model == model:
+                    fk_field_name = field.name
+                    break
+            if fk_field_name:
+                for f in attachments:
+                    attachment_model.objects.create(**{fk_field_name: instance, "file": f})
 
         return instance

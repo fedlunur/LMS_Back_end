@@ -122,6 +122,9 @@ class GenericModelViewSet(viewsets.ModelViewSet):
     #  Dynamic Serializer
     def get_serializer(self, *args, **kwargs):
         kwargs["model_name"] = self.basename
+        # Ensure request context is passed for file uploads
+        if 'context' not in kwargs:
+            kwargs['context'] = self.get_serializer_context()
         return DynamicFieldSerializer(*args, **kwargs)
 
     #  Response Helpers
@@ -283,13 +286,47 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             )
             return self.success_response(self.get_serializer(obj).data, "Rating submitted successfully.", status.HTTP_200_OK)
 
-        serializer = self.get_serializer(data=request.data)
+        # Combine request.data and request.FILES for file uploads
+        # Convert QueryDict to a standard mutable dictionary
+        data = request.data.dict() if hasattr(request.data, 'dict') else request.data.copy()
+
+        # Remove 'attachments' from data initially to avoid conflict with non-file data
+        if "attachments" in data:
+            del data["attachments"]
+        
+        if hasattr(request, 'FILES'):
+            for key in request.FILES:
+                files = request.FILES.getlist(key)
+                
+                # Special handling for 'attachments' field
+                if key == "attachments" or key == "attachments[]":
+                    # Ensure it's stored as 'attachments' and is a list
+                    data["attachments"] = files
+                # Standard handling for other fields
+                elif len(files) == 1:
+                    data[key] = files[0]
+                else:
+                    data[key] = files
+        
+        serializer = self.get_serializer(data=data)
         if serializer.is_valid():
-            instance = serializer.save()
-            return self.success_response(
-                self.get_serializer(instance).data, "Created successfully", status.HTTP_201_CREATED
-            )
-        return self.failure_response(serializer.errors)
+            try:
+                instance = serializer.save()
+                return self.success_response(
+                    self.get_serializer(instance).data, "Created successfully", status.HTTP_201_CREATED
+                )
+            except Exception as e:
+                error_message = str(e)
+                # Try to extract more specific error information
+                if hasattr(e, 'message_dict'):
+                    error_message = e.message_dict
+                elif hasattr(e, 'messages'):
+                    error_message = list(e.messages)
+                return self.failure_response(
+                    {"error": error_message, "detail": "An error occurred while creating the record."},
+                    status.HTTP_400_BAD_REQUEST
+                )
+        return self.failure_response(serializer.errors, status.HTTP_400_BAD_REQUEST)
 
         # Note: Above is default flow; custom flows may early-return before this point
 

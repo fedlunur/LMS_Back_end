@@ -19,8 +19,12 @@ class ChatConfig(AppConfig):
             
             def preload_model():
                 try:
+                    import time
+                    # Wait for server to fully start to avoid fighting for resources during startup
+                    time.sleep(30)
+                    
                     from .services.vector_store import get_embedding_model
-                    logger.info("Pre-loading embedding model at startup...")
+                    logger.info("Pre-loading embedding model (background)...")
                     get_embedding_model()  # This will cache the model globally
                     logger.info("Embedding model pre-loaded successfully.")
                 except Exception as e:
