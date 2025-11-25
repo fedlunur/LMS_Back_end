@@ -23,7 +23,7 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             'enrollment', 'lessonprogress', 'moduleprogress', 'quizattempt',
             'assignmentsubmission', 'assessmentattempt', 'certificate',
             'conversation', 'message', 'courserating', 'questionbank',
-            'questionbankquestion', 'questionbankanswer'
+            'questionbankquestion', 'questionbankanswer', 'courseresource'
         }
 
         if self.action in ["list", "retrieve"]:
@@ -108,6 +108,24 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         # Only show published courses to regular users, but allow instructors to see their own drafts
         if model_name == 'course' and self.request.user.is_authenticated and not self.request.user.is_staff:
             queryset = queryset.filter(Q(status='published') | Q(instructor_id=self.request.user.id))
+
+        # CourseResource: only show to enrolled users, instructors, or staff
+        if model_name == 'courseresource' and self.request.user.is_authenticated:
+            user = self.request.user
+            if not user.is_staff:
+                from courses.models import Enrollment
+                # Get courses where user is enrolled
+                enrolled_course_ids = Enrollment.objects.filter(
+                    student=user,
+                    payment_status='completed',
+                    is_enrolled=True
+                ).values_list('course_id', flat=True)
+                # Instructors see all resources for their courses
+                # Enrolled students see only public resources (is_public=True)
+                queryset = queryset.filter(
+                    Q(course__instructor=user) |  # Instructor sees all
+                    Q(course_id__in=enrolled_course_ids, is_public=True)  # Enrolled sees public only
+                )
 
         # Query parameter filtering
         filter_kwargs = {}
