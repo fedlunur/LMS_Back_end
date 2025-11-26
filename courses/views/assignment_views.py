@@ -2,9 +2,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from django.db.models import Count
 from courses.services.progress_service import mark_lesson_completed
 from courses.services.assignment_service import submit_assignment
 from ..serializers import DynamicFieldSerializer
+from ..models import AssignmentSubmission, Lesson
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -81,4 +83,38 @@ def submit_assignment_and_complete_view(request, lesson_id):
         }, status=status.HTTP_400_BAD_REQUEST)
 
 
-
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def student_assignment_history_view(request):
+    """
+    Get student's assignment submission history and counts.
+    Optional query params:
+        - lesson_id: Filter by specific lesson
+        - course_id: Filter by specific course
+    """
+    user = request.user
+    lesson_id = request.query_params.get('lesson_id')
+    course_id = request.query_params.get('course_id')
+    
+    submissions = AssignmentSubmission.objects.filter(student=user).select_related('lesson', 'lesson__course')
+    
+    if lesson_id:
+        submissions = submissions.filter(lesson_id=lesson_id)
+    if course_id:
+        submissions = submissions.filter(lesson__course_id=course_id)
+    
+    # Get counts by status
+    status_counts = submissions.values('status').annotate(count=Count('id'))
+    status_summary = {item['status']: item['count'] for item in status_counts}
+    
+    # Serialize submissions
+    serializer = DynamicFieldSerializer(submissions.order_by('-submitted_at'), many=True, model_name="assignmentsubmission")
+    
+    return Response({
+        "success": True,
+        "data": {
+            "total_submissions": submissions.count(),
+            "status_summary": status_summary,
+            "submissions": serializer.data
+        }
+    }, status=status.HTTP_200_OK)

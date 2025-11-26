@@ -18,6 +18,7 @@ from courses.views import (
     submit_quiz_view,
     submit_assignment_view,
     submit_assignment_and_complete_view,
+    student_assignment_history_view,
     get_final_assessment_view,
     submit_final_assessment_view,
     get_course_progress_view,
@@ -214,6 +215,7 @@ urlpatterns = [
     # Assignment endpoints
     re_path(r'^api/submit-assignment/(?P<lesson_id>\d+)/$', submit_assignment_view, name='submit_assignment'),
     re_path(r'^api/submit-assignment-complete/(?P<lesson_id>\d+)/$', submit_assignment_and_complete_view, name='submit_assignment_complete'),
+    path('api/assignment-history/', student_assignment_history_view, name='student_assignment_history'),
     
     # Final Assessment endpoints
     re_path(r'^api/final-assessment/(?P<course_id>\d+)/$', get_final_assessment_view, name='get_final_assessment'),
