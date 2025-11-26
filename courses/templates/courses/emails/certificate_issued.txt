@@ -1,0 +1,13 @@
+Great news {{ first_name|default:full_name|default:email }}!
+
+Your certificate for "{{ course_title }}" is ready.
+Certificate No: {{ certificate_number }}
+Issued: {{ issued_date|date:"M d, Y" }}{% if grade %}
+Grade: {{ grade }}{% endif %}
+
+{% if support_email %}Need help? Contact {{ support_email }}.{% endif %}
+
+Best,
+{{ project_name }}
+
+

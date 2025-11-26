@@ -17,8 +17,7 @@ from django.core.wsgi import get_wsgi_application
 from whitenoise import WhiteNoise
 from pathlib import Path
 
-# IMPORTANT: match your actual settings module
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'lms_project.settings')
 
 application = get_wsgi_application()
 

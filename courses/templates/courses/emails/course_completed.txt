@@ -1,0 +1,11 @@
+Congratulations {{ first_name|default:full_name|default:email }}!
+
+You have completed "{{ course_title }}".
+
+Keep learning and growing.
+{% if support_email %}Need anything? Contact {{ support_email }}.{% endif %}
+
+Best,
+{{ project_name }}
+
+

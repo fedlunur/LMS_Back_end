@@ -21,6 +21,13 @@ class RoleSerializer(serializers.ModelSerializer):
         model = Role
         fields = ['id', 'name']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        name = data.get('name')
+        if isinstance(name, str):
+            data['name'] = name.lower()
+        return data
+
 class UserRoleSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField()  # or use serializers.PrimaryKeyRelatedField()
     role = serializers.StringRelatedField()  # or use serializers.PrimaryKeyRelatedField()
@@ -52,8 +59,11 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         token['permissions'] = grouped_permissions
 
-        # Add user roles
-        token['roles'] = [{'id': role.role.id, 'name': role.role.name} for role in user.userrole_set.all()]
+        # Add user roles (lowercase names for consistency on frontend)
+        token['roles'] = [
+            {'id': role.role.id, 'name': (role.role.name.lower() if role.role and role.role.name else '')}
+            for role in user.userrole_set.all()
+        ]
 
         return token
 
@@ -133,12 +143,14 @@ class UserRegisterSerializer(serializers.ModelSerializer):
             middle_name=validated_data.get('middle_name', ''),
             last_name=validated_data.get('last_name', ''),
             role=role,
-            is_staff=False  # Students should not be staff
+            is_staff=False,  # Students should not be staff
+            enabled=True,
+            is_email_verified=False,
         )
         
         # Set the password securely
         user.set_password(validated_data['password'])
-        user.isLoggedIn=1
+        user.isLoggedIn = 0
         user.save()
         print("User is saved !!!!!!!")
         return user
@@ -149,46 +161,62 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.CharField()
     password = serializers.CharField()
-
+  
     def validate(self, data):
         email = data.get('email')
         password = data.get('password')
-
+        print(f"Logge in tried with ===>  {email}")
         if not email or not password:
-            raise serializers.ValidationError("Email and password are required.")
-
-        # Check if user exists first
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("No account found with this email.")
-
-        # Now check if the user is active
-        if not user.is_active:
-            raise serializers.ValidationError(
-                "Your account is not activated. Please verify your email."
-            )
-
-        # If active, authenticate
+            raise serializers.ValidationError("email and password are required.")
+        
         user = authenticate(email=email, password=password)
+      
         if not user:
-            raise serializers.ValidationError("Incorrect password. Please try again.")
-
+            raise serializers.ValidationError("Invalid email or password.")
+        
         return {'user': user}
-
 
 # Exclude sensitive information from user details
 class UserDetailSerializer(serializers.ModelSerializer):
     role = RoleSerializer(read_only=True)
+    photo = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         exclude = ('password','isLoggedIn', 'is_superuser', 'is_staff', 'groups', 'user_permissions')
+    
+    def get_photo(self, obj):
+        """Return photo path relative to media root (e.g., /media/user_photos/...)"""
+        if not obj.photo:
+            return None
         
+        from django.conf import settings
         
-# serializers.py
-from rest_framework import serializers
+        # Normalize the photo path
+        photo_path = obj.photo.strip()
+        
+        # If already a full URL, extract just the path part
+        if photo_path.startswith(('http://', 'https://')):
+            # Extract path from URL (everything after domain)
+            from urllib.parse import urlparse
+            parsed = urlparse(photo_path)
+            photo_path = parsed.path
+        
+        # If path starts with /media/, return as-is
+        if photo_path.startswith(settings.MEDIA_URL):
+            return photo_path
+        # If path starts with / but not /media/, prepend MEDIA_URL
+        elif photo_path.startswith('/'):
+            return f"{settings.MEDIA_URL.rstrip('/')}{photo_path}"
+        else:
+            # Relative path - check if it already contains media path
+            if photo_path.startswith('media/'):
+                # Already has media/ prefix, just add leading slash
+                return f"/{photo_path.lstrip('/')}"
+            else:
+                # Relative path, prepend MEDIA_URL
+                return f"{settings.MEDIA_URL.rstrip('/')}/{photo_path.lstrip('/')}"
+                
+class GoogleLoginSerializer(serializers.Serializer):
+    access_token = serializers.CharField(required=True)
 
-class OTPVerifySerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    otp_code = serializers.CharField(max_length=6)
-        

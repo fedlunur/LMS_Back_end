@@ -1,0 +1,11 @@
+Hello {{ first_name|default:full_name|default:email }},
+
+Your enrollment in "{{ course_title }}" is confirmed.
+You're all set to start learning.
+
+{% if support_email %}Need help? Contact us at {{ support_email }}.{% endif %}
+
+Thanks,
+{{ project_name }}
+
+

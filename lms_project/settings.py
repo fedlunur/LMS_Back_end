@@ -17,36 +17,29 @@ BASE_DIR = Path(__file__).resolve().parent
 env_path = BASE_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
-#resend api key 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL")
-TESTING = os.getenv("TESTING", default=True)
-
-
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
-#ALLOWED_HOSTS = ['*']
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'lms'),
-        'USER': os.getenv('DB_USER', 'lms'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'lms'),
-        'HOST': os.getenv('DB_HOST', 'db'),  # 'db' to match docker-compose service name
-        'PORT': os.getenv('DB_PORT', '5432'),
-    }
-}
+# ALLOWED_HOSTS = ['localhost','127.0.0.1','49.12.70.115']
+ALLOWED_HOSTS = ['*']
 # DATABASES = {
 #     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.getenv('DB_NAME', 'lms'),
+#         'USER': os.getenv('DB_USER', 'lms'),
+#         'PASSWORD': os.getenv('DB_PASSWORD', 'lms'),
+#         'HOST': os.getenv('DB_HOST', 'db'),  # 'db' to match docker-compose service name
+#         'PORT': os.getenv('DB_PORT', '5432'),
 #     }
 # }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+    }
+}
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'fallback-dev-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -63,21 +56,27 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+
      # 'channels',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',  # Enable CORS handling
     'user_managment',
     'courses',
     'grading',
+    'payments',
+    'chat',
+    'channels',
   
    
   
 ]
 
 SIMPLE_JWT = {
- 
+    # 'ACCESS_TOKEN_LIFETIME': timedelta(days=30),
+    # 'REFRESH_TOKEN_LIFETIME': timedelta(days=70),
     'ACCESS_TOKEN_LIFETIME': timedelta(days=365*10),  # 10 years
-    'REFRESH_TOKEN_LIFETIME': timedelta(seconds=300), 
+    #  'REFRESH_TOKEN_LIFETIME': timedelta(days=365*20),  # 20 years
+     'REFRESH_TOKEN_LIFETIME': timedelta(seconds=300), 
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
@@ -87,12 +86,17 @@ SIMPLE_JWT = {
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
+
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ],
-    
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        # 'rest_framework.authentication.SessionAuthentication',  # Only for browsable API -if enabled it says CSRF token missing 
+        'rest_framework_simplejwt.authentication.JWTAuthentication', 
+    ),
+    # 'DEFAULT_PERMISSION_CLASSES': (
+    #     'rest_framework.permissions.IsAuthenticated',
+    # ),
 }
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -124,8 +128,8 @@ TEMPLATES = [
         },
     },
 ]
-WSGI_APPLICATION = 'wsgi.application'
-# WSGI_APPLICATION = 'lms_project.wsgi.application'
+# WSGI_APPLICATION = 'wsgi.application'
+WSGI_APPLICATION = 'lms_project.wsgi.application'
 
 # for the docker just uncomment the below 
 # ASGI_APPLICATION = 'backend.asgi.application'
@@ -187,6 +191,7 @@ JAZZMIN_SETTINGS = {
     "show_ui_builder": False,
     "changeform_format": "collapsible",  # Makes forms easier to work with
     "changeform_format_overrides": {"auth.user": "carousel"},  # Example: customized format for specific models
+
     "button_classes": {
         "primary": "btn-primary",
         "secondary": "btn-secondary",
@@ -240,9 +245,10 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # if you need to block access from postman make true 
 # CSRF_COOKIE_HTTPONLY = False
-# CSRF_TRUSTED_ORIGINS = [
-#     'http://188.245.105.29',
-# ]
+CSRF_TRUSTED_ORIGINS = [
+    # 'http://188.245.105.29',
+   "https://c08a15be5985.ngrok-free.app",
+]
 
 CORS_ALLOW_ALL_ORIGINS = True  # For testing
 CORS_ALLOW_CREDENTIALS = True
@@ -252,8 +258,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://10.0.2.2:8888",
     "http://127.0.0.1:8888",
     'http://188.245.105.29:8888',
-     'http://localhost:62488', 
-    
+     'http://localhost:62488',
+    "https://*.ngrok-free.app",
+    "http://c08a15be5985.ngrok-free.app",
 ]
 CORS_ALLOW_METHODS = [
     "GET",
@@ -274,3 +281,102 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
+
+# -------------------- STRIPE / PAYMENTS --------------------
+# These should be set in environment variables in production
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+
+# Frontend URLs for Stripe redirects
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'http://localhost:8888')
+STRIPE_SUCCESS_PATH = os.getenv('STRIPE_SUCCESS_PATH', '/payment/success')
+STRIPE_CANCEL_PATH = os.getenv('STRIPE_CANCEL_PATH', '/payment/cancel')
+
+
+# Email configuration - Using Resend API with SMTP fallback
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+
+# Initialize Resend API key
+try:
+    import resend
+    if RESEND_API_KEY:
+        resend.api_key = RESEND_API_KEY
+except ImportError:
+    # Resend package not installed - will be handled in email service
+    pass
+
+# SMTP Configuration (used as fallback when Resend fails)
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "False") == "True"
+
+# Email / verification defaults
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@emerald.edu.et")
+SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL", DEFAULT_FROM_EMAIL)
+PROJECT_NAME = os.getenv("PROJECT_NAME", "Emerald LMS")
+EMAIL_VERIFICATION_SUBJECT = os.getenv(
+    "EMAIL_VERIFICATION_SUBJECT",
+    f"Verify your email for {PROJECT_NAME}",
+)
+EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES = int(
+    os.getenv("EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES", "15")
+)
+
+
+# -------------------- PAGINATION SETTINGS --------------------
+# Default number of items per page for list endpoints
+DEFAULT_PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE", "9"))
+# Maximum number of items per page (can be overridden via query parameter)
+MAX_PAGE_SIZE = int(os.getenv("MAX_PAGE_SIZE", "100"))
+
+
+# -------------------- GEMINI AI CHATBOT --------------------
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-1.5-flash")
+
+# -------------------- VECTOR DATABASE / EMBEDDINGS --------------------
+# Embedding model for semantic search (sentence-transformers)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# Path to ChromaDB persistent storage
+CHROMA_DB_PATH = os.path.join(BASE_DIR, "chroma_db")
+
+
+# -------------------- REDIS CACHE --------------------
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://redis:6379/1',  # Use DB 1 for cache (DB 0 for channels)
+        # Note: Django's built-in Redis cache doesn't use CLIENT_CLASS
+        # If you need CLIENT_CLASS, use django-redis package instead:
+        # 'BACKEND': 'django_redis.cache.RedisCache',
+        'KEY_PREFIX': 'lms',
+        'TIMEOUT': 300,  # Default timeout 5 minutes
+    }
+}
+
+# Fallback to locmem if Redis is unavailable (development only)
+try:
+    import redis
+    redis.Redis(host='redis', port=6379, db=1).ping()
+except Exception:
+    # Redis not available, fallback to local memory cache
+    CACHES['default'] = {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'chatbot-cache',
+    }
+
+# -------------------- CHANNELS / ASGI --------------------
+ASGI_APPLICATION = 'lms_project.asgi.application'
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("redis", 6379)], 
+        },
+    },
+}

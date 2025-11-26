@@ -1,0 +1,589 @@
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from courses.services.quiz_service import get_quiz_questions, start_quiz_attempt, submit_quiz
+from courses.services.access_service import is_lesson_accessible
+from courses.models import Enrollment, Lesson, QuizAttempt, QuizQuestion, QuizConfiguration, QuizAnswer, Enrollment
+from courses.serializers import DynamicFieldSerializer
+from django.db.models import Avg, Max, Min
+
+        
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_quiz_view(request, lesson_id):
+    """
+    Submit quiz answers for a lesson.
+    Expected payload: {
+        "responses": [
+            {"question_id": 1, "answer_id": 2},  // for multiple-choice/true-false
+            {"question_id": 2, "answer_text": "Jupiter"},  // for fill-blank
+            {"question_id": 3, "drag_drop_response": {"mappings": {...}}},  // for drag & drop
+        ],
+        "start_time": "2024-01-01T00:00:00Z"  // optional
+    }
+    """
+    
+    from django.utils.dateparse import parse_datetime
+    
+    responses = request.data.get('responses', [])
+    if not responses:
+        return Response({
+            "success": False,
+            "message": "Responses are required."
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    start_time_str = request.data.get('start_time')
+    start_time = None
+    if start_time_str:
+        start_time = parse_datetime(start_time_str)
+    
+    success, message, attempt_data = submit_quiz(request.user, lesson_id, responses, start_time=start_time)
+    if success:
+        return Response({
+            "success": True,
+            "message": message,
+            "data": attempt_data
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            "success": False,
+            "message": message
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_quiz_results_view(request, lesson_id):
+    """
+    Get quiz results for a lesson (with correct answers if show_correct_answers is enabled).
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        enrollment = Enrollment.objects.get(student=request.user, course=lesson.course)
+        
+        # Get latest attempt
+        attempt = QuizAttempt.objects.filter(
+            student=request.user,
+            lesson=lesson
+        ).order_by('-completed_at').first()
+        
+        if not attempt:
+            # Return a friendly, actionable message for first-time quiz takers
+            quiz_config = getattr(lesson, 'quiz_config', None)
+            return Response({
+                "success": True,
+                "data": {
+                    "has_attempt": False,
+                    "message": "You haven't taken this quiz yet. Click Start to begin your first attempt.",
+                    "config": DynamicFieldSerializer(quiz_config, model_name="quizconfiguration").data if quiz_config else None
+                },
+                "message": "No attempts yet."
+            }, status=status.HTTP_200_OK)
+        
+        # Get quiz config
+        quiz_config = getattr(lesson, 'quiz_config', None)
+        show_answers = quiz_config.show_correct_answers if quiz_config else True
+        
+        # Get responses
+        responses = attempt.responses.all().select_related('question', 'answer')
+        
+        response_serializer = DynamicFieldSerializer(responses, many=True, model_name="quizresponse")
+        
+        result_data = {
+            "attempt": {
+                "id": attempt.id,
+                "score": attempt.score,
+                "correct_answers": attempt.correct_answers,
+                "total_questions": attempt.total_questions,
+                "earned_points": attempt.earned_points,
+                "total_points": attempt.total_points,
+                "passed": attempt.passed,
+                "attempt_number": attempt.attempt_number,
+                "completed_at": attempt.completed_at
+            },
+            "responses": response_serializer.data
+        }
+        
+        # Include correct answers if enabled
+        if show_answers:
+            result_data["show_correct_answers"] = True
+        
+        return Response({
+            "success": True,
+            "data": result_data,
+            "message": "Quiz results retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Lesson.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Lesson not found."
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+ 
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def start_quiz_attempt_view(request, lesson_id):
+    """
+    Start a new quiz attempt for a student.
+    """
+    
+    # Ensure lesson is unlocked before starting
+    try:
+        lesson_obj = Lesson.objects.get(id=lesson_id)
+        if not is_lesson_accessible(request.user, lesson_obj):
+            return Response({
+                "success": False,
+                "message": "This quiz is locked. Please complete the previous lesson first."
+            }, status=status.HTTP_403_FORBIDDEN)
+    except Lesson.DoesNotExist:
+        return Response({"success": False, "message": "Lesson not found."}, status=status.HTTP_404_NOT_FOUND)
+    success, message, attempt_data = start_quiz_attempt(request.user, lesson_id)
+    if success:
+        return Response({
+            "success": True,
+            "message": message,
+            "data": attempt_data
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({
+            "success": False,
+            "message": message
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET', 'POST', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def get_quiz_questions_view(request, lesson_id):
+    """
+    Get quiz questions for a lesson (with randomization if enabled).
+    For students only - excludes correct answers and internal settings.
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        # Allow instructor/staff to access regardless of enrollment/locks
+        is_instructor = (lesson.course.instructor_id == request.user.id) or request.user.is_staff
+
+        enrollment = None
+        if not is_instructor:
+            enrollment = Enrollment.objects.get(student=request.user, course=lesson.course)
+            
+            if enrollment.payment_status != 'completed':
+                return Response({
+                    "success": False,
+                    "message": "Payment not completed for this course."
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            if lesson.content_type != Lesson.ContentType.QUIZ:
+                return Response({
+                    "success": False,
+                    "message": "This lesson is not a quiz."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Ensure unlock for students
+            if not is_lesson_accessible(request.user, lesson):
+                return Response({
+                    "success": False,
+                    "message": "This quiz is locked. Please complete the previous lesson first."
+                }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get quiz configuration
+        quiz_config = getattr(lesson, 'quiz_config', None)
+        quiz_lesson = getattr(lesson, 'quiz', None)
+
+        if not is_instructor:
+            # Enforce time limit for students only: if in-progress attempt is expired, finalize and block
+            from datetime import timedelta
+            from django.utils import timezone
+            from courses.models import QuizAttempt
+            in_progress = QuizAttempt.objects.filter(student=request.user, lesson=lesson, is_in_progress=True).first()
+            if in_progress:
+                time_limit_min = quiz_config.time_limit if quiz_config else (quiz_lesson.time_limit if quiz_lesson else 30)
+                if in_progress.started_at and timezone.now() > (in_progress.started_at + timedelta(minutes=time_limit_min)):
+                    # Finalize attempt with existing responses
+                    all_questions = lesson.quiz_questions.all()
+                    total_points = sum(q.points for q in all_questions)
+                    attempt = in_progress
+                    attempt.total_questions = all_questions.count()
+                    attempt.total_points = total_points
+                    # earned/correct already reflect recorded responses
+                    attempt.is_in_progress = False
+                    attempt.completed_at = timezone.now()
+                    attempt.time_taken = attempt.completed_at - attempt.started_at if attempt.started_at else None
+                    attempt.calculate_score()
+                    return Response({
+                        "success": False,
+                        "message": "Time limit exceeded. Attempt submitted.",
+                        "data": {
+                            "attempt": {
+                                "id": attempt.id,
+                                "score": attempt.score,
+                                "passed": attempt.passed,
+                                "completed_at": attempt.completed_at
+                            }
+                        }
+                    }, status=status.HTTP_403_FORBIDDEN)
+
+        # Teacher-side manage (create/update/delete) questions via this endpoint
+        if request.method in ['POST', 'PATCH', 'DELETE']:
+            if not is_instructor:
+                return Response({"success": False, "message": "Only the course instructor can modify quiz questions."}, status=status.HTTP_403_FORBIDDEN)
+
+            try:
+                if request.method == 'POST':
+                    data = request.data
+                    q = QuizQuestion.objects.create(
+                        lesson=lesson,
+                        question_type=data.get('question_type', 'multiple-choice'),
+                        question_text=data.get('question_text', ''),
+                        points=data.get('points', 1),
+                        order=data.get('order', 0),
+                        blanks=data.get('blanks', []),
+                        cloze_text=data.get('cloze_text', ''),
+                        cloze_answers=data.get('cloze_answers', []),
+                        cloze_options=data.get('cloze_options', []),
+                    )
+                    # Optional: create answers for MCQ/TF if provided
+                    answers = data.get('answers')
+                    if isinstance(answers, list):
+                        QuizAnswer.objects.filter(question=q).delete()
+                        bulk = []
+                        for idx, a in enumerate(answers):
+                            bulk.append(QuizAnswer(
+                                question=q,
+                                answer_text=a.get('answer_text') or a.get('text') or '',
+                                is_correct=bool(a.get('is_correct', False)),
+                                order=a.get('order', idx)
+                            ))
+                        if bulk:
+                            QuizAnswer.objects.bulk_create(bulk)
+                    return Response({
+                        "success": True,
+                        "message": "Quiz question created.",
+                        "data": DynamicFieldSerializer(q, model_name="quizquestion").data
+                    }, status=status.HTTP_201_CREATED)
+
+                if request.method == 'PATCH':
+                    data = request.data
+                    question_id = data.get('question_id')
+                    if not question_id:
+                        return Response({"success": False, "message": "question_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+                    q = QuizQuestion.objects.get(id=question_id, lesson=lesson)
+                    for field in ['question_type', 'question_text', 'points', 'order', 'blanks', 'cloze_text', 'cloze_answers', 'cloze_options']:
+                        if field in data:
+                            setattr(q, field, data[field])
+                    q.save()
+                    # Replace answers if provided
+                    if isinstance(data.get('answers'), list):
+                        QuizAnswer.objects.filter(question=q).delete()
+                        bulk = []
+                        for idx, a in enumerate(data['answers']):
+                            bulk.append(QuizAnswer(
+                                question=q,
+                                answer_text=a.get('answer_text') or a.get('text') or '',
+                                is_correct=bool(a.get('is_correct', False)),
+                                order=a.get('order', idx)
+                            ))
+                        if bulk:
+                            QuizAnswer.objects.bulk_create(bulk)
+                    return Response({
+                        "success": True,
+                        "message": "Quiz question updated.",
+                        "data": DynamicFieldSerializer(q, model_name="quizquestion").data
+                    }, status=status.HTTP_200_OK)
+
+                if request.method == 'DELETE':
+                    data = request.data
+                    question_id = data.get('question_id')
+                    if not question_id:
+                        return Response({"success": False, "message": "question_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+                    q = QuizQuestion.objects.get(id=question_id, lesson=lesson)
+                    q.delete()
+                    return Response({"success": True, "message": "Quiz question deleted."}, status=status.HTTP_200_OK)
+
+            except QuizQuestion.DoesNotExist:
+                return Response({"success": False, "message": "Quiz question not found for this lesson."}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                return Response({"success": False, "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get questions
+        randomize = quiz_config.randomize_questions if quiz_config else (quiz_lesson.randomize_questions if quiz_lesson else False)
+        questions = get_quiz_questions(lesson, randomize=randomize)
+        
+        # Serialize questions (without correct answers) to student-facing shape
+        question_data = []
+        for q in questions:
+            q_data = DynamicFieldSerializer(q, model_name="quizquestion").data
+            q_type = q.question_type
+
+            # Structure per question type
+            if q_type in ['multiple-choice', 'true-false']:
+                q_data['answers'] = [{'id': ans.id, 'answer_text': ans.answer_text} for ans in q.answers.all()]
+                # Remove backend-only fields
+                for field in [
+                    'blanks', 'cloze_text', 'cloze_answers', 'cloze_options', 'background_image',
+                    'image_drop_zones', 'image_drag_items', 'image_correct_mappings',
+                    'matching_left_items', 'matching_right_items', 'matching_correct_pairs',
+                    'sequencing_items', 'sequencing_correct_order', 'categorization_items',
+                    'categorization_categories', 'categorization_correct_mappings',
+                    'drag_items', 'drop_zones', 'drag_drop_mappings', 'option_images'
+                ]:
+                    q_data.pop(field, None)
+
+            elif q_type == 'fill-blank':
+                # Ensure a blanks array is present for frontend; do not expose correct answers
+                blanks = q.blanks if hasattr(q, 'blanks') and q.blanks else []
+                q_data['blanks'] = [] if blanks else []
+                for field in [
+                    'answers', 'cloze_text', 'cloze_answers', 'cloze_options',
+                    'background_image', 'image_drop_zones', 'image_drag_items', 'image_correct_mappings',
+                    'matching_left_items', 'matching_right_items', 'matching_correct_pairs',
+                    'sequencing_items', 'sequencing_correct_order', 'categorization_items',
+                    'categorization_categories', 'categorization_correct_mappings',
+                    'drag_items', 'drop_zones', 'drag_drop_mappings', 'option_images'
+                ]:
+                    q_data.pop(field, None)
+
+            elif any(t in q_type for t in ['drag-drop', 'matching', 'sequencing', 'categorization']):
+                for field in [
+                    'cloze_answers', 'image_correct_mappings', 'matching_correct_pairs',
+                    'sequencing_correct_order', 'categorization_correct_mappings',
+                    'answers', 'blanks'
+                ]:
+                    q_data.pop(field, None)
+            else:
+                for field in [
+                    'answers', 'blanks', 'cloze_answers', 'image_correct_mappings',
+                    'matching_correct_pairs', 'sequencing_correct_order', 'categorization_correct_mappings'
+                ]:
+                    q_data.pop(field, None)
+
+            question_data.append(q_data)
+
+        # Return in paginated-like structure to match frontend expectations
+        return Response({
+            "count": len(question_data),
+            "next": None,
+            "previous": None,
+            "results": {
+                "success": True,
+                "data": question_data,
+                "message": "Records retrieved successfully."
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Lesson.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Lesson not found."
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_quiz_attempt_history_view(request, lesson_id):
+    """
+    Get all quiz attempts for a student for a specific lesson.
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        enrollment = Enrollment.objects.get(student=request.user, course=lesson.course)
+        
+        attempts = QuizAttempt.objects.filter(
+            student=request.user,
+            lesson=lesson
+        ).order_by('-completed_at', '-started_at')
+        
+        attempt_data = []
+        for attempt in attempts:
+            attempt_dict = DynamicFieldSerializer(attempt, model_name="quizattempt").data
+            attempt_data.append(attempt_dict)
+        
+        # Get final score based on grading policy
+        quiz_config = getattr(lesson, 'quiz_config', None)
+        final_score = quiz_config.calculate_final_score(request.user) if quiz_config else attempts.first().score if attempts.exists() else 0.0
+        
+        return Response({
+            "success": True,
+            "data": {
+                "attempts": attempt_data,
+                "final_score": final_score,
+                "total_attempts": attempts.count()
+            },
+            "message": "Quiz attempt history retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Lesson.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Lesson not found."
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_quiz_view(request, lesson_id):
+    """
+    Create a quiz configuration for a lesson.
+    Only the course instructor can create quizzes.
+    Expected payload: {
+        "time_limit": 30,
+        "passing_score": 70,
+        "max_attempts": 3,
+        "randomize_questions": false,
+        "show_correct_answers": true,
+        "grading_policy": "highest"
+    }
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        
+        # Check authorization
+        if lesson.course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to create quizzes for this lesson."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        if lesson.content_type != Lesson.ContentType.QUIZ:
+            return Response({
+                "success": False,
+                "message": "This lesson is not a quiz lesson."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if config already exists
+      
+        quiz_config, created = QuizConfiguration.objects.get_or_create(
+            lesson=lesson,
+            defaults={
+                'time_limit': request.data.get('time_limit', 30),
+                'passing_score': request.data.get('passing_score', 70),
+                'max_attempts': request.data.get('max_attempts', 3),
+                'randomize_questions': request.data.get('randomize_questions', False),
+                'show_correct_answers': request.data.get('show_correct_answers', True),
+                'grading_policy': request.data.get('grading_policy', 'highest')
+            }
+        )
+        
+        if not created:
+            # Update existing config
+            quiz_config.time_limit = request.data.get('time_limit', quiz_config.time_limit)
+            quiz_config.passing_score = request.data.get('passing_score', quiz_config.passing_score)
+            quiz_config.max_attempts = request.data.get('max_attempts', quiz_config.max_attempts)
+            quiz_config.randomize_questions = request.data.get('randomize_questions', quiz_config.randomize_questions)
+            quiz_config.show_correct_answers = request.data.get('show_correct_answers', quiz_config.show_correct_answers)
+            quiz_config.grading_policy = request.data.get('grading_policy', quiz_config.grading_policy)
+            quiz_config.save()
+        
+        serializer = DynamicFieldSerializer(quiz_config, model_name="quizconfiguration")
+        
+        return Response({
+            "success": True,
+            "data": serializer.data,
+            "message": "Quiz configuration created successfully." if created else "Quiz configuration updated successfully."
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+    
+    except Lesson.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Lesson not found."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_quiz_analytics_view(request, lesson_id):
+    """
+    Get quiz analytics for teachers.
+    Shows statistics about all student attempts.
+    """
+    try:
+        lesson = Lesson.objects.get(id=lesson_id)
+        
+        # Check authorization
+        if lesson.course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to view analytics for this quiz."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        if lesson.content_type != Lesson.ContentType.QUIZ:
+            return Response({
+                "success": False,
+                "message": "This lesson is not a quiz."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get all attempts
+        attempts = QuizAttempt.objects.filter(lesson=lesson, is_in_progress=False)
+        
+        # Calculate statistics
+        total_attempts = attempts.count()
+        avg_score = attempts.aggregate(Avg('score'))['score__avg'] or 0.0
+        max_score = attempts.aggregate(Max('score'))['score__max'] or 0.0
+        min_score = attempts.aggregate(Min('score'))['score__min'] or 0.0
+        
+        # Count passed attempts
+        quiz_config = getattr(lesson, 'quiz_config', None)
+        passing_score = quiz_config.passing_score if quiz_config else 70
+        passed_attempts = attempts.filter(score__gte=passing_score).count()
+        passed_percentage = (passed_attempts / total_attempts * 100) if total_attempts > 0 else 0.0
+        
+        # Get unique students
+        unique_students = attempts.values('student').distinct().count()
+        
+        # Get enrollment count
+        enrollment_count = Enrollment.objects.filter(course=lesson.course, payment_status='completed').count()
+        completion_rate = (unique_students / enrollment_count * 100) if enrollment_count > 0 else 0.0
+        
+        # Get total marks
+        total_marks = lesson.calculate_total_marks()
+        
+        return Response({
+            "success": True,
+            "data": {
+                "quiz_info": {
+                    "lesson_id": lesson.id,
+                    "lesson_title": lesson.title,
+                    "total_marks": total_marks,
+                    "total_questions": QuizQuestion.objects.filter(lesson=lesson).count(),
+                    "passing_score": passing_score
+                },
+                "statistics": {
+                    "total_attempts": total_attempts,
+                    "unique_students": unique_students,
+                    "enrollment_count": enrollment_count,
+                    "completion_rate": round(completion_rate, 2),
+                    "average_score": round(avg_score, 2),
+                    "max_score": round(max_score, 2),
+                    "min_score": round(min_score, 2),
+                    "passed_attempts": passed_attempts,
+                    "passed_percentage": round(passed_percentage, 2)
+                }
+            },
+            "message": "Quiz analytics retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Lesson.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Lesson not found."
+        }, status=status.HTTP_404_NOT_FOUND)
+

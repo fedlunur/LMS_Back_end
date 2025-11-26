@@ -1,12 +1,37 @@
 # models.py
-from django.conf import settings
+"""
+Domain models for the courses application.
+
+The file is intentionally organised in thematic sections to make it easier
+to navigate and maintain. A quick overview of the section order:
+
+1.  Core taxonomies (categories, levels, courses)
+2.  Course structure (modules, lessons and attachments)
+3.  Lesson content types (video, article, quiz, assignment)
+4.  Enrollment and progress tracking
+5.  Course metadata & communication (badges, QA, announcements, messages)
+6.  Assessments (final course assessments and related entities)
+"""
+
+import random
+import string
+from datetime import timedelta
+
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
-from user_managment.models import User 
-from .choices import *
 from django.utils.text import slugify
-import string, random 
+
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+
+from user_managment.models import User
+from .choices import STATUS_CHOICES
+
+# ---------------------------------------------------------------------------
+# Core Taxonomies
+# ---------------------------------------------------------------------------
+
 
 class Category(models.Model):
     name = models.CharField(max_length=120, unique=True)
@@ -57,6 +82,11 @@ class Course(models.Model):
     rejection_reason = models.TextField(blank=True)
     submitted_for_approval_at = models.DateTimeField(null=True, blank=True)
     issue_certificate = models.BooleanField(default=False)
+    requires_final_assessment = models.BooleanField(
+        default=False,
+        help_text="If enabled, student must pass the final assessment before certificate is issued."
+    )
+    # is_public = models.BooleanField(default=True) # Future use: control visibility of course in catalog 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -73,10 +103,17 @@ class Course(models.Model):
 
     @property
     def is_visible(self):
+        """
+        Expose a defensive helper for templates/API outputs.
+
+        Older migrations referenced flags that might not exist on the current
+        schema, so we guard those lookups with ``getattr`` to avoid runtime
+        AttributeError crashes in admin or serializers.
+        """
         return (
-            self.status and self.status.code == "published"
-            and not self.hidden_from_students
-            and not self.is_flagged
+            self.status == "published"
+            and not getattr(self, "hidden_from_students", False)
+            and not getattr(self, "is_flagged", False)
         )
 
     @property
@@ -85,14 +122,28 @@ class Course(models.Model):
 
     @property
     def total_duration(self):
-        from datetime import timedelta
-        total = sum((lesson.duration for lesson in self.lessons.all() if lesson.duration), timedelta())
-        hours = total.seconds // 3600
-        minutes = (total.seconds % 3600) // 60
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        else:
-            return f"{minutes}m"
+        """
+        Human-readable total estimated duration for this course, based on
+        per-lesson estimated duration rules (video/quiz/article).
+        """
+        total_seconds = self.total_duration_seconds
+        total_minutes = int(total_seconds // 60)
+        hours, minutes = divmod(total_minutes, 60)
+        return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+    @property
+    def total_duration_seconds(self) -> int:
+        """
+        Numeric total estimated duration for this course in seconds,
+        using the unified per-lesson estimation logic.
+        """
+        total_seconds = 0
+        for lesson in self.lessons.all():
+            try:
+                total_seconds += int(getattr(lesson, "estimated_duration_seconds", 0) or 0)
+            except Exception:
+                continue
+        return total_seconds
 
     @property
     def average_rating(self):
@@ -104,6 +155,26 @@ class Course(models.Model):
     @property
     def total_reviews(self):
         return self.ratings.count()
+
+    @property
+    def total_enrollments(self):
+        """
+        Number of students enrolled in this course.
+        Prefers an annotated value when present to avoid N+1 queries.
+        Counts only active enrollments with completed payment.
+        """
+        annotated_value = getattr(self, "_total_enrollments", None) or getattr(self, "total_enrollments_cache", None)
+        if annotated_value is not None:
+            return int(annotated_value)
+        try:
+            return self.enrollments.filter(payment_status="completed", is_enrolled=True).count()
+        except Exception:
+            # Be defensive if related manager is unavailable during migrations/shell ops
+            return 0
+
+# ---------------------------------------------------------------------------
+# Course Structure
+# ---------------------------------------------------------------------------
 
 
 class Module(models.Model):
@@ -166,8 +237,63 @@ class Lesson(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.course.title} — {self.title}"
+        return f"{self.id}: {self.course.title} — {self.title} ({self.get_content_type_display()})"
+
     
+    def calculate_total_marks(self):
+        """Calculate total marks for a quiz lesson"""
+        if self.content_type == Lesson.ContentType.QUIZ:
+            questions = QuizQuestion.objects.filter(lesson=self)
+            return sum(q.points for q in questions)
+        return 0
+
+    @property
+    def estimated_duration_seconds(self) -> int:
+        """
+        Estimated time to complete this lesson, in seconds, using unified rules:
+        - Video: use VideoLesson.duration
+        - Quiz: use QuizConfiguration.time_limit (minutes)
+        - Article: use ArticleLesson.estimated_read_time (minutes)
+        - Assignment or others: 0 (no fixed time)
+        """
+        # Video lesson
+        try:
+            if self.content_type == Lesson.ContentType.VIDEO and hasattr(self, "video") and self.video.duration:
+                return int(self.video.duration.total_seconds())
+        except Exception:
+            pass
+
+        # Quiz lesson
+        try:
+            if self.content_type == Lesson.ContentType.QUIZ and hasattr(self, "quiz_config") and self.quiz_config.time_limit:
+                return int(self.quiz_config.time_limit * 60)
+        except Exception:
+            pass
+
+        # Article lesson
+        try:
+            if self.content_type == Lesson.ContentType.ARTICLE and hasattr(self, "article") and self.article.estimated_read_time:
+                return int(self.article.estimated_read_time * 60)
+        except Exception:
+            pass
+
+        # Assignment or unknown types: no reliable estimate
+        return 0
+
+    @property
+    def estimated_duration(self):
+        """
+        Estimated duration as a timedelta, derived from estimated_duration_seconds.
+        """
+        seconds = self.estimated_duration_seconds
+        return timedelta(seconds=seconds) if seconds > 0 else timedelta()
+
+
+# ---------------------------------------------------------------------------
+# Lesson Content Types
+# ---------------------------------------------------------------------------
+
+
 class VideoLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="video")
     video_file = models.FileField(upload_to='lesson_videos/', null=True, blank=True)
@@ -183,6 +309,28 @@ class VideoLesson(models.Model):
     def __str__(self):
         return self.title or self.lesson.title
 
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        # Allow only one source: either uploaded file OR YouTube URL (not both)
+        if self.video_file and self.youtube_url:
+            raise ValidationError({"youtube_url": "Provide either a video file or a YouTube URL, not both."})
+
+    def save(self, *args, **kwargs):
+        # Enforce validation at model level for generic serializers/forms
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @property
+    def checkpoint_quizzes(self):
+        """
+        Convenience accessor linking a VideoLesson to its checkpoint quizzes.
+        Keeps the DB schema stable by leveraging the existing FK to Lesson.
+        """
+        try:
+            return VideoCheckpointQuiz.objects.filter(lesson=self.lesson).order_by("timestamp_seconds")
+        except Exception:
+            return VideoCheckpointQuiz.objects.none()
+
 
 class VideoLessonAttachment(models.Model):
     video_lesson = models.ForeignKey(
@@ -197,57 +345,202 @@ class VideoLessonAttachment(models.Model):
         return f"{self.video_lesson.lesson.title} — {self.file.name}"
 
 
+# --- Quiz content ----------------------------------------------------------
+
+
+GRADING_POLICY_CHOICES = [
+    ('highest', 'Highest Score'),
+    ('latest', 'Latest Attempt'),
+    ('average', 'Average Score'),
+    ('first', 'First Attempt'),
+]
+
+
 class QuizLesson(models.Model):
-    lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="quiz")
-    type = models.CharField(max_length=50, default="multiple-choice")
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+        ('fill-blank', 'Fill in Blank'),
+        # ('drag-drop-text', 'Drag & Drop onto Text'),
+        # ('drag-drop-image', 'Drag & Drop onto Image'),
+        # ('drag-drop-matching', 'Drag & Drop Matching'),
+        # ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
+        # ('drag-drop-categorization', 'Drag & Drop Categorization'),
+        # ('short-answer', 'Short Answer'),
+    ]
+
+    lesson = models.OneToOneField(
+        Lesson,
+        on_delete=models.CASCADE,
+        related_name="quiz"
+    )
+    type = models.CharField(
+        max_length=50,
+        choices=QUESTION_TYPE_CHOICES,
+        default="multiple-choice"
+    )
     time_limit = models.PositiveIntegerField(default=30)  # minutes
     passing_score = models.PositiveIntegerField(default=70)
     attempts = models.PositiveIntegerField(default=3)
     randomize_questions = models.BooleanField(default=False)
     show_correct_answers = models.BooleanField(default=True)
-    grading_policy = models.CharField(max_length=20, default="highest")
-    questions =  models.JSONField(default=list, blank=True)  # store question objects like TS template
+    grading_policy = models.CharField(choices=GRADING_POLICY_CHOICES, max_length=20, default="highest")
+
     class Meta:
         verbose_name_plural = "QuizLesson"
+
+    def __str__(self):
+        return f"Quiz - {self.lesson.title}"
+
+    
+    
 class QuizQuestion(models.Model):
     QUESTION_TYPE_CHOICES = [
         ('multiple-choice', 'Multiple Choice'),
         ('true-false', 'True/False'),
         ('fill-blank', 'Fill in Blank'),
-        ('drag-drop', 'Drag & Drop'),
         ('short-answer', 'Short Answer'),
+        # ('drag-drop-text', 'Drag & Drop onto Text'),
+        # ('drag-drop-image', 'Drag & Drop onto Image'),
+        # ('drag-drop-matching', 'Drag & Drop Matching'),
+        # ('drag-drop-sequencing', 'Drag & Drop Sequencing'),
+        # ('drag-drop-categorization', 'Drag & Drop Categorization'),
     ]
     
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_questions')
-    question_type = models.CharField(max_length=20, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    # quiz_lesson = models.ForeignKey(QuizLesson, on_delete=models.CASCADE, related_name='questions', null=True, blank=True)
+    question_type = models.CharField(max_length=30, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
     question_text = models.TextField()
     question_image = models.ImageField(upload_to='quiz_questions/', null=True, blank=True)
     explanation = models.TextField(blank=True)
-    points = models.PositiveIntegerField(default=1)
+    points = models.PositiveIntegerField(default=1, help_text="Points the question carries (e.g., 5 marks, 3 marks)")
     order = models.PositiveIntegerField(default=0)
     
     # Fill in blank specific fields
-    blanks = models.JSONField(default=list, blank=True, help_text="List of correct answers for blanks")
+    blanks = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of correct answers for blanks. For multiple blanks, use list of strings."
+    )
     
-    # Drag and drop specific fields
-    drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items")
-    drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones")
-    drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings")
+    # # Drag and drop onto text (Cloze) fields
+    # cloze_text = models.TextField(
+    #     blank=True, 
+    #     help_text="Text with blanks marked (e.g., 'The largest planet is ___.')"
+    # )
+    # cloze_answers = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of correct answers for each blank in order"
+    # )
+    # cloze_options = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of draggable options for cloze questions"
+    # )
     
-    # Image support for advanced question types
-    option_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for multiple choice options")
-    drag_item_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for drag items")
-    drop_zone_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for drop zones")
+    # # Drag and drop onto image fields
+    # background_image = models.ImageField(
+    #     upload_to='quiz_questions/drag_drop_images/', 
+    #     null=True, 
+    #     blank=True,
+    #     help_text="Background image for drag & drop onto image"
+    # )
+    # image_drop_zones = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of drop zones with coordinates: [{'id': 1, 'x': 100, 'y': 200, 'label': 'Nucleus'}, ...]"
+    # )
+    # image_drag_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="List of draggable items: [{'id': 1, 'text': 'Nucleus', 'image': 'url'}, ...]"
+    # )
+    # image_correct_mappings = models.JSONField(
+    #     default=dict, 
+    #     blank=True, 
+    #     help_text="Correct mappings: {'drag_item_id': 'drop_zone_id', ...}"
+    # )
+    
+    # # Drag and drop matching fields
+    # matching_left_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Left side items: [{'id': 1, 'text': 'France', 'image': 'url'}, ...]"
+    # )
+    # matching_right_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Right side items: [{'id': 1, 'text': 'Paris', 'image': 'url'}, ...]"
+    # )
+    # matching_correct_pairs = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Correct pairs: [{'left_id': 1, 'right_id': 2}, ...]"
+    # )
+    
+    # # Drag and drop sequencing fields
+    # sequencing_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Items to sequence: [{'id': 1, 'text': 'Step 1', 'image': 'url'}, ...]"
+    # )
+    # sequencing_correct_order = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Correct order as list of item IDs: [1, 3, 2, 4]"
+    # )
+    
+    # # Drag and drop categorization fields
+    # categorization_items = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Items to categorize: [{'id': 1, 'text': 'Dog', 'image': 'url'}, ...]"
+    # )
+    # categorization_categories = models.JSONField(
+    #     default=list, 
+    #     blank=True, 
+    #     help_text="Categories: [{'id': 1, 'name': 'Mammals', 'color': '#ff0000'}, ...]"
+    # )
+    # categorization_correct_mappings = models.JSONField(
+    #     default=dict, 
+    #     blank=True, 
+    #     help_text="Correct mappings: {'item_id': 'category_id', ...}"
+    # )
+    
+    # # Generic drag and drop fields (for backward compatibility)
+    # drag_items = models.JSONField(default=list, blank=True, help_text="List of draggable items (deprecated)")
+    # drop_zones = models.JSONField(default=list, blank=True, help_text="List of drop zones (deprecated)")
+    # drag_drop_mappings = models.JSONField(default=dict, blank=True, help_text="Correct drag-drop mappings (deprecated)")
+    
+    # # Image support for advanced question types
+    # option_images = models.JSONField(default=list, blank=True, help_text="List of image URLs/paths for multiple choice options")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         ordering = ['order', 'created_at']
-    
         verbose_name_plural = "QuizQuestion"
+    
     def __str__(self):
         return f"{self.lesson.title} - Question {self.order + 1}"
+    
+    @property
+    def total_marks(self):
+        """Calculate total marks for this question"""
+        return self.points
+
+    @property
+    def blanks_count(self):
+        """Number of blanks for fill-blank/short-answer questions (derived from blanks list)."""
+        try:
+            return len(self.blanks) if self.blanks else 1
+        except Exception:
+            return 1
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
 
 
 class QuizAnswer(models.Model):
@@ -267,56 +560,155 @@ class QuizAnswer(models.Model):
 
 class QuizAttempt(models.Model):
     student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='quiz_attempt_student')
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_lesson')
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='quiz_attempts')
     score = models.FloatField(default=0.0)  # Percentage score (0-100)
     total_questions = models.PositiveIntegerField(default=0)
     correct_answers = models.PositiveIntegerField(default=0)
-    completed_at = models.DateTimeField(auto_now_add=True)
+    total_points = models.FloatField(default=0.0)  # Total possible points
+    earned_points = models.FloatField(default=0.0)  # Points earned
+    passed = models.BooleanField(default=False)  # Whether the attempt passed
+    attempt_number = models.PositiveIntegerField(default=1)  # Which attempt this is (1st, 2nd, etc.)
+    started_at = models.DateTimeField(auto_now_add=True)  # When the attempt started
+    completed_at = models.DateTimeField(null=True, blank=True)  # When the attempt was completed
     time_taken = models.DurationField(null=True, blank=True)  # Time taken to complete
+    is_in_progress = models.BooleanField(default=True)  # Whether the attempt is still in progress
     
     class Meta:
         # Allow multiple attempts per student per lesson
-        ordering = ['-completed_at']
+        ordering = ['-completed_at', '-started_at']
         verbose_name_plural = "QuizAttempt"
+        indexes = [
+            models.Index(fields=['student', 'lesson', '-completed_at']),
+        ]
     
     def calculate_score(self):
-        """Calculate the score based on correct answers"""
-        if self.total_questions > 0:
-            self.score = (self.correct_answers / self.total_questions) * 100
+        """Calculate the score based on earned points vs total points"""
+        if self.total_points > 0:
+            self.score = (self.earned_points / self.total_points) * 100
         else:
             self.score = 0.0
+        
+        # Check if passed
+        quiz_config = getattr(self.lesson, 'quiz_config', None)
+        passing_score = quiz_config.passing_score if quiz_config else 70
+        self.passed = self.score >= passing_score
+        
         self.save()
         return self.score
+
+    def finalize_and_grade(self):
+        """Recalculate earned points/correct counts from responses and finalize attempt if still in progress."""
+        if not self.is_in_progress:
+            return self
+        responses = self.responses.select_related('question')
+        earned = 0.0
+        correct = 0
+        total_pts = 0.0
+        total_questions = 0
+        for resp in responses:
+            q = resp.question
+            total_questions += 1
+            total_pts += q.points
+            earned += resp.points_earned
+            if resp.is_correct:
+                correct += 1
+        self.total_questions = total_questions
+        self.total_points = total_pts
+        self.earned_points = earned
+        self.correct_answers = correct
+        self.is_in_progress = False
+        if not self.completed_at:
+            self.completed_at = timezone.now()
+        self.calculate_score()
+        return self
     
     def __str__(self):
-        return f"{self.student.email} - {self.lesson.title} - {self.score}%"
+        return f"{self.student.email} - {self.lesson.title} - {self.score}% - Attempt {self.attempt_number}"
+
+
+# --- Quiz configuration & responses ----------------------------------------
+GRADING_POLICY_CHOICES = [
+    ('highest', 'Highest Score'),
+    ('latest', 'Latest Attempt'),
+    ('average', 'Average Score'),
+    ('first', 'First Attempt'),
+]
 
 
 class QuizConfiguration(models.Model):
     """Quiz settings and configuration for lessons"""
-    GRADING_POLICY_CHOICES = [
-        ('highest', 'Highest Score'),
-        ('latest', 'Latest Attempt'),
-        ('average', 'Average Score'),
-        ('first', 'First Attempt'),
-    ]
+    # GRADING_POLICY_CHOICES = [
+    #     ('highest', 'Highest Score'),
+    #     ('latest', 'Latest Attempt'),
+    #     ('average', 'Average Score'),
+    #     ('first', 'First Attempt'),
+    # ]
     
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name='quiz_config')
-    time_limit = models.PositiveIntegerField(default=30, help_text="Time limit in minutes")
-    passing_score = models.PositiveIntegerField(default=70, help_text="Passing score percentage")
-    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum attempts allowed")
-    randomize_questions = models.BooleanField(default=False)
-    show_correct_answers = models.BooleanField(default=True)
-    grading_policy = models.CharField(max_length=20, choices=GRADING_POLICY_CHOICES, default='highest')
+    time_limit = models.PositiveIntegerField(
+        default=30, 
+        help_text="Time limit in minutes. Specify the time limit for the quiz."
+    )
+    passing_score = models.PositiveIntegerField(
+        default=70, 
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Minimum percentage required to pass (0-100)"
+    )
+    max_attempts = models.PositiveIntegerField(
+        default=3, 
+        help_text="Maximum number of attempts allowed"
+    )
+    randomize_questions = models.BooleanField(
+        default=False, 
+        help_text="Whether to show questions in random order"
+    )
+    show_correct_answers = models.BooleanField(
+        default=True, 
+        help_text="Display correct answers after submission"
+    )
+    grading_policy = models.CharField(
+        max_length=20, 
+        choices=GRADING_POLICY_CHOICES, 
+        default='highest',
+        help_text="How to calculate final score from multiple attempts"
+    )
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
     class Meta:
-       
         verbose_name_plural = "QuizConfiguration"
+    
     def __str__(self):
         return f"Quiz Config - {self.lesson.title}"
     
+    def calculate_final_score(self, student):
+        """
+        Calculate final score based on grading policy.
+        Returns the final score (0-100) based on the selected grading policy.
+        """
+        attempts = QuizAttempt.objects.filter(
+            student=student,
+            lesson=self.lesson
+        ).order_by('completed_at')
+        
+        if not attempts.exists():
+            return 0.0
+        
+        if self.grading_policy == 'highest':
+            return max(attempt.score for attempt in attempts)
+        elif self.grading_policy == 'latest':
+            return attempts.last().score
+        elif self.grading_policy == 'average':
+            return sum(attempt.score for attempt in attempts) / attempts.count()
+        elif self.grading_policy == 'first':
+            return attempts.first().score
+        
+        return 0.0
+    
+# --- Assignment content ----------------------------------------------------
+
+
 class AssignmentLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="assignment")
     instructions = models.TextField(blank=True)
@@ -338,7 +730,10 @@ class AssignmentLesson(models.Model):
        
         verbose_name_plural = "AssignmentLesson"
 
-        
+
+# --- Article content -------------------------------------------------------
+
+
 class ArticleLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="article")
     title = models.CharField(max_length=200)
@@ -399,6 +794,11 @@ class LessonResource(models.Model):
        
         verbose_name_plural = "LessonResource"
 
+# ---------------------------------------------------------------------------
+# Enrollment & Progress Tracking
+# ---------------------------------------------------------------------------
+
+
 class Enrollment(models.Model):
     PAYMENT_STATUS_CHOICES = [
         ('completed', 'Completed'),
@@ -439,6 +839,7 @@ class Enrollment(models.Model):
     def calculate_progress(self):
         """Calculate course progress based on completed lessons"""
         total_lessons = Lesson.objects.filter(course=self.course).count()
+        was_completed = bool(self.is_completed)
         if total_lessons == 0:
             self.progress = 0.0
             self.completed_lessons = 0
@@ -458,6 +859,40 @@ class Enrollment(models.Model):
                 self.is_completed = False
                 self.completed_at = None
         self.save(update_fields=['progress', 'completed_lessons', 'is_completed', 'completed_at'])
+
+        # Auto-issue certificate when course is completed and certification is enabled,
+        # only if the course does NOT require passing a final assessment.
+        # If a final assessment is required, certificate issuance happens after a passing attempt.
+        try:
+            if self.is_completed and getattr(self.course, "issue_certificate", False):
+                requires_assessment = bool(getattr(self.course, "requires_final_assessment", False))
+                if not requires_assessment:
+                    from .models import Certificate  # local import to avoid circulars during app loading
+                    Certificate.objects.get_or_create(enrollment=self)
+        except Exception:
+            # Soft-fail certificate issuance to avoid blocking progress updates
+            pass
+
+        # Notify course completion on first transition to completed
+        try:
+            if not was_completed and self.is_completed:
+                from courses.services.email_service import send_course_completed_email
+                send_course_completed_email(self)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send course completed email for enrollment {self.id}: {str(e)}", exc_info=True)
+        
+        # Send course completed notification
+        try:
+            if not was_completed and self.is_completed:
+                from courses.services.notification_service import send_course_completed_notification
+                send_course_completed_notification(self)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send course completed notification for enrollment {self.id}: {str(e)}", exc_info=True)
+        
         return self.progress
     
     def unlock_first_module(self):
@@ -538,7 +973,8 @@ class ResourceProgress(models.Model):
         return self
 
     def __str__(self):
-        return f"{self.lesson_progress.enrollment.student.email} - {self.resource.name}"
+        resource_title = getattr(self.resource, "title", None) or getattr(self.resource, "file", None)
+        return f"{self.lesson_progress.enrollment.student.email} - {resource_title}"
 
 
 class Certificate(models.Model):
@@ -552,13 +988,29 @@ class Certificate(models.Model):
        
         verbose_name_plural = "Certificate"
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
         if not self.certificate_number:
             course_prefix = (self.enrollment.course.title[:3].upper() if len(self.enrollment.course.title) >= 3 else 'CRS')
             self.certificate_number = f"EMR-{course_prefix}-{''.join(random.choices(string.digits, k=8))}"
         super().save(*args, **kwargs)
+        
+        # Send certificate issued notification on creation
+        if is_new:
+            try:
+                from courses.services.notification_service import send_certificate_issued_notification
+                send_certificate_issued_notification(self)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send certificate issued notification for certificate {self.id}: {str(e)}", exc_info=True)
 
     def __str__(self):
         return f"Certificate {self.certificate_number} - {self.enrollment.student.email}"
+# ---------------------------------------------------------------------------
+# Course Metadata & Communications
+# ---------------------------------------------------------------------------
+
+
 class CourseBadge(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='badges')
     badge_type = models.CharField(max_length=20, blank=True,null=True)
@@ -580,7 +1032,8 @@ class CourseBadge(models.Model):
        
         verbose_name_plural = "LessonCourseBadge"
     def __str__(self):
-        return f"{self.get_badge_type_display()} - {self.course.title}"
+        label = self.badge_type or "badge"
+        return f"{label.title()} - {self.course.title}"
 
 class CourseQA(models.Model):
     """Q&A section for courses where students can ask questions"""
@@ -690,8 +1143,45 @@ class CourseAnnouncement(models.Model):
     class Meta:
         ordering = ['-is_pinned', '-published_at', '-created_at']
        
-       
+        
         verbose_name_plural = "Course Announcement"
+    
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        was_published = False
+        if not is_new:
+            try:
+                old_instance = CourseAnnouncement.objects.get(pk=self.pk)
+                was_published = old_instance.is_published
+            except CourseAnnouncement.DoesNotExist:
+                pass
+        
+        # Set published_at if being published for the first time
+        if self.is_published and not self.published_at:
+            from django.utils import timezone
+            self.published_at = timezone.now()
+        
+        super().save(*args, **kwargs)
+        
+        # Send notifications if announcement is published and send_notification is enabled
+        if self.is_published and self.send_notification and (is_new or not was_published):
+            try:
+                from courses.services.notification_service import send_course_announcement_notification
+                from courses.models import Enrollment
+                # Get all enrolled students
+                enrolled_students = Enrollment.objects.filter(
+                    course=self.course,
+                    payment_status='completed',
+                    is_enrolled=True
+                ).values_list('student', flat=True).distinct()
+                
+                from user_managment.models import User
+                students = User.objects.filter(id__in=enrolled_students)
+                send_course_announcement_notification(self, students)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send course announcement notification for announcement {self.id}: {str(e)}", exc_info=True)
     
     def __str__(self):
         return f"Announcement: {self.title} - {self.course.title}"
@@ -748,8 +1238,10 @@ class VideoCheckpointQuiz(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        ordering = ['timestamp_seconds']
-        unique_together = ['lesson', 'timestamp_seconds']  # One quiz per timestamp per lesson
+        ordering = ['timestamp_seconds', 'id']
+        indexes = [
+            models.Index(fields=['lesson', 'timestamp_seconds']),
+        ]
         
        
         verbose_name_plural = "Video Check point Quiz"
@@ -865,9 +1357,7 @@ class Conversation(models.Model):
     class Meta:
         unique_together = ['teacher', 'student']  # One conversation per teacher-student pair
         ordering = ['-last_message_at']
-     
-       
-        verbose_name_plural = "Conversation "
+        verbose_name_plural = "Conversations"
     def __str__(self):
         course_name = self.course.title if self.course else "General"
         return f"{self.teacher.get_full_name()} - {self.student.get_full_name()} - {course_name}"
@@ -899,7 +1389,7 @@ class Message(models.Model):
         ordering = ['sent_at']
      
        
-        verbose_name_plural = "Message"
+        verbose_name_plural = "Messages"
     def save(self, *args, **kwargs):
         # Update conversation's last message info
         super().save(*args, **kwargs)
@@ -918,7 +1408,9 @@ class Message(models.Model):
         return f"{self.sender.get_full_name()} to {self.receiver.get_full_name()} - {self.sent_at.strftime('%Y-%m-%d %H:%M')}"
 
 
-# ------------ Additional Models for Course Details ------------ #
+# ---------------------------------------------------------------------------
+# Additional Course Details
+# ---------------------------------------------------------------------------
 
 class CourseOverview(models.Model):
     course = models.OneToOneField(Course, on_delete=models.CASCADE, related_name="overview")
@@ -949,7 +1441,9 @@ class CourseFAQ(models.Model):
         return f"FAQ for {self.course.title}: {self.question}"
 
 
-# ============ Additional Models for LMS Functionality ============
+# ---------------------------------------------------------------------------
+# Shared LMS Resources
+# ---------------------------------------------------------------------------
 
 class LessonAttachment(models.Model):
     """Multiple attachments for VideoLesson and ArticleLesson"""
@@ -973,12 +1467,23 @@ class QuizResponse(models.Model):
     question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE, related_name='student_responses')
     answer = models.ForeignKey(QuizAnswer, on_delete=models.CASCADE, null=True, blank=True, related_name='selected_in_responses')
     answer_text = models.TextField(blank=True, help_text="For fill-in-blank or short answer questions")
+    
+    # Drag & drop response fields
+    drag_drop_response = models.JSONField(
+        default=dict, 
+        blank=True, 
+        help_text="For drag & drop questions: stores mappings, sequences, or categorizations"
+    )
+    
     is_correct = models.BooleanField(default=False)
     points_earned = models.FloatField(default=0.0)
     
     class Meta:
         unique_together = ['attempt', 'question']
         verbose_name_plural = "Quiz Responses"
+        indexes = [
+            models.Index(fields=['attempt', 'question']),
+        ]
     
     def __str__(self):
         return f"{self.attempt.student.email} - {self.question.question_text[:50]}"
@@ -1002,6 +1507,7 @@ class AssignmentSubmission(models.Model):
     submission_file = models.FileField(upload_to='assignment_submissions/', null=True, blank=True)
     submission_url = models.URLField(blank=True)
     github_repo = models.URLField(blank=True, help_text="GitHub repository URL")
+    code_snippet = models.TextField(blank=True)
     
     # Status and grading
     status = models.CharField(max_length=20, choices=SUBMISSION_STATUS_CHOICES, default='draft')
@@ -1076,6 +1582,11 @@ class ModuleProgress(models.Model):
     
     def __str__(self):
         return f"{self.enrollment.student.email} - {self.module.title} - {self.progress}%"
+
+
+# ---------------------------------------------------------------------------
+# Final Course Assessments
+# ---------------------------------------------------------------------------
 
 
 class FinalCourseAssessment(models.Model):
@@ -1200,3 +1711,258 @@ class AssessmentResponse(models.Model):
         return f"{self.attempt.student.email} - {self.question.question_text[:50]}"
 
     
+
+class EventType(models.Model):
+    """Flexible event types that can be managed via CRUD"""
+    name = models.CharField(max_length=100, unique=True, help_text="Internal name (e.g., 'live_session')")
+    display_name = models.CharField(max_length=100, help_text="Display name (e.g., 'Live Session')")
+    description = models.TextField(blank=True, null=True)
+    icon = models.CharField(max_length=50, blank=True, help_text="Icon identifier for frontend")
+    color = models.CharField(max_length=20, blank=True, help_text="Color code for UI (e.g., '#3B82F6')")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['display_name']
+        verbose_name_plural = "Event Types"
+
+    def __str__(self):
+        return self.display_name
+
+
+class Event(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='events', null=True, blank=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    event_type = models.ForeignKey(EventType, on_delete=models.PROTECT, related_name='events', null=True, blank=True)
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField(blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['start_datetime']
+        verbose_name_plural = "Events"
+
+    def __str__(self):
+        return f"{self.title} - {self.start_datetime}"
+
+
+# Notifations
+
+
+class NotificationType(models.TextChoices):
+    """Types of notifications in the system"""
+    ENROLLMENT_CONFIRMED = 'enrollment_confirmed', 'Enrollment Confirmed'
+    ENROLLMENT_PENDING = 'enrollment_pending', 'Enrollment Pending'
+    PAYMENT_COMPLETED = 'payment_completed', 'Payment Completed'
+    PAYMENT_FAILED = 'payment_failed', 'Payment Failed'
+    COURSE_COMPLETED = 'course_completed', 'Course Completed'
+    CERTIFICATE_ISSUED = 'certificate_issued', 'Certificate Issued'
+    EMAIL_VERIFICATION = 'email_verification', 'Email Verification'
+    PASSWORD_RESET = 'password_reset', 'Password Reset'
+    ASSIGNMENT_GRADED = 'assignment_graded', 'Assignment Graded'
+    QUIZ_GRADED = 'quiz_graded', 'Quiz Graded'
+    COURSE_ANNOUNCEMENT = 'course_announcement', 'Course Announcement'
+    LESSON_UNLOCKED = 'lesson_unlocked', 'Lesson Unlocked'
+    MODULE_UNLOCKED = 'module_unlocked', 'Module Unlocked'
+    GENERAL = 'general', 'General'
+
+
+class Notification(models.Model):
+    """
+    Notification model for user notifications.
+    Supports generic foreign keys to link to any related object (enrollment, payment, etc.)
+    """
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+        help_text="User who receives this notification"
+    )
+    
+    notification_type = models.CharField(
+        max_length=50,
+        choices=NotificationType.choices,
+        default=NotificationType.GENERAL,
+        help_text="Type of notification"
+    )
+    
+    title = models.CharField(
+        max_length=200,
+        help_text="Notification title"
+    )
+    
+    message = models.TextField(
+        help_text="Notification message/content"
+    )
+    
+    # Generic foreign key to link to any related object
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Type of related object"
+    )
+    object_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="ID of related object"
+    )
+    related_object = GenericForeignKey('content_type', 'object_id')
+    
+    # Status fields
+    is_read = models.BooleanField(
+        default=False,
+        help_text="Whether the user has read this notification"
+    )
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the notification was read"
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the notification was created"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When the notification was last updated"
+    )
+    
+    # Optional: Action URL for frontend navigation
+    action_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Optional URL to navigate to when notification is clicked"
+    )
+    
+    # Optional: Icon or image
+    icon = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Icon identifier for the notification (e.g., 'enrollment', 'payment', 'certificate')"
+    )
+    
+    class Meta:
+        ordering = ['-created_at']  # Newest first
+        indexes = [
+            models.Index(fields=['user', 'is_read', '-created_at']),
+            models.Index(fields=['user', 'notification_type']),
+            models.Index(fields=['-created_at']),
+        ]
+        verbose_name = "Notification"
+        verbose_name_plural = "Notifications"
+    
+    def mark_as_read(self):
+        """Mark notification as read"""
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save(update_fields=['is_read', 'read_at'])
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.title} ({'read' if self.is_read else 'unread'})"
+
+
+# ---------------------------------------------------------------------------
+# Question Bank
+# ---------------------------------------------------------------------------
+
+
+class QuestionBank(models.Model):
+    """Question bank for teachers to store and reuse questions across courses"""
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name='question_banks')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    course = models.ForeignKey(
+        Course, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='question_banks',
+        help_text="Optional: Associate with a specific course. If null, available for all courses by this teacher."
+    )
+    is_active = models.BooleanField(default=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "Question Banks"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['teacher', '-created_at']),
+            models.Index(fields=['course', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} - {self.teacher.email}"
+    
+    @property
+    def total_questions(self):
+        """Return total number of questions in this bank"""
+        return self.questions.count()
+
+
+class QuestionBankQuestion(models.Model):
+    """Questions stored in a question bank"""
+    QUESTION_TYPE_CHOICES = [
+        ('multiple-choice', 'Multiple Choice'),
+        ('true-false', 'True/False'),
+        ('fill-blank', 'Fill in Blank'),
+        ('short-answer', 'Short Answer'),
+    ]
+    
+    question_bank = models.ForeignKey(QuestionBank, on_delete=models.CASCADE, related_name='questions')
+    question_type = models.CharField(max_length=30, choices=QUESTION_TYPE_CHOICES, default='multiple-choice')
+    question_text = models.TextField()
+    question_image = models.ImageField(upload_to='question_bank_questions/', null=True, blank=True)
+    explanation = models.TextField(blank=True)
+    points = models.PositiveIntegerField(default=1, help_text="Points the question carries")
+    order = models.PositiveIntegerField(default=0)
+    
+    # Fill in blank specific fields
+    blanks = models.JSONField(
+        default=list, 
+        blank=True, 
+        help_text="List of correct answers for blanks. For multiple blanks, use list of strings."
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['order', 'created_at']
+        verbose_name_plural = "Question Bank Questions"
+        indexes = [
+            models.Index(fields=['question_bank', 'order']),
+        ]
+    
+    def __str__(self):
+        return f"{self.question_bank.name} - Question {self.order + 1}"
+
+
+class QuestionBankAnswer(models.Model):
+    """Answers for question bank questions"""
+    question = models.ForeignKey(QuestionBankQuestion, on_delete=models.CASCADE, related_name='answers')
+    answer_text = models.CharField(max_length=500)
+    answer_image = models.ImageField(upload_to='question_bank_answers/', null=True, blank=True)
+    is_correct = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        ordering = ['order']
+        verbose_name_plural = "Question Bank Answers"
+    
+    def __str__(self):
+        return f"{self.question.question_text[:50]} - {self.answer_text}"
+
+
+# QuizBank

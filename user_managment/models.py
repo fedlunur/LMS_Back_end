@@ -1,15 +1,13 @@
-from django.db import models
-from django.db.models.signals import post_save # helps 
-from django.contrib.auth.models import AbstractUser
-from django.core.mail import send_mail
-from django.dispatch import receiver
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
-from django.utils import timezone
-from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, AbstractUser
 from django.contrib.contenttypes.fields import GenericForeignKey
-from django.utils.text import slugify
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.db.models.signals import post_save  # helps
+from django.dispatch import receiver
 from django.utils import timezone
-from datetime import timedelta
+
 # Create your models here.
 class UserManager(BaseUserManager):
     def create_user(self, email, first_name, middle_name=None, password=None, **extra_fields):
@@ -52,16 +50,36 @@ class UserManager(BaseUserManager):
         return self.create_user(email, first_name, password=password, **extra_fields)
 
 class Role(models.Model):
-    name = models.CharField(max_length=140, unique=True)
-    slug = models.SlugField(max_length=140, unique=True, blank=True)
-    
+    name = models.CharField(max_length=100, unique=True)
+
+    def clean(self):
+        super().clean()
+        if self.name:
+            normalized = self.name.strip().lower()
+            # Canonicalize known aliases
+            if normalized in ('instructor',):
+                normalized = 'teacher'
+            if normalized in ('students',):
+                normalized = 'student'
+
+            # Check for case-insensitive duplicates
+            qs = Role.objects.filter(name__iexact=normalized)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError({'name': 'Role with this name already exists.'})
+
+            # Assign normalized name after validation
+            self.name = normalized
+
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.name)
+        # Just save — validation happens via clean() in admin/forms
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.name}'
+        return self.name
+
+
 
 class User(AbstractUser):
     first_name = models.CharField(max_length=255, null=False)
@@ -74,6 +92,7 @@ class User(AbstractUser):
     status = models.CharField(max_length=255, default='Active')
     removed = models.BooleanField(default=False)
     enabled = models.BooleanField(default=True)
+    is_email_verified = models.BooleanField(default=False)
     created = models.DateTimeField(default=timezone.now)
     isLoggedIn = models.IntegerField(default=0)
     # Instructor-specific fields
@@ -117,6 +136,71 @@ class User(AbstractUser):
         verbose_name = 'user'
         verbose_name_plural = 'users'
         
+
+class EmailVerificationToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="email_verification_tokens",
+    )
+    code = models.CharField(max_length=6)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "code"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def mark_used(self, commit: bool = True):
+        self.is_used = True
+        if commit:
+            self.save(update_fields=["is_used"])
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        status = "used" if self.is_used else "pending"
+        return f"{self.user.email} - {self.code} ({status})"
+
+
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    code = models.CharField(max_length=6)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "code"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def mark_used(self, commit: bool = True):
+        self.is_used = True
+        if commit:
+            self.save(update_fields=["is_used"])
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        status = "used" if self.is_used else "pending"
+        return f"{self.user.email} - reset {self.code} ({status})"
+
+
 class UserRole(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     role = models.ForeignKey(Role, on_delete=models.CASCADE)
@@ -140,15 +224,5 @@ class UserLog(models.Model):
     def __str__(self):
         return f"{self.user} - {self.action} at {self.timestamp}"
    
-class EmailOTP(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='email_otps')
-    code = models.CharField(max_length=6)
-    created_at = models.DateTimeField(auto_now_add=True)
-    resend_count = models.IntegerField(default=0)
-
-    def is_expired(self):
-        # OTP expires after 5 minutes
-        return timezone.now() > self.created_at + timedelta(minutes=5)
-
-    def __str__(self):
-        return f"{self.user.email} - {self.code}"    
+    
+    
