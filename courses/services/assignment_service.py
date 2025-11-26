@@ -5,7 +5,7 @@ from ..models import Enrollment, Lesson, AssignmentSubmission
 def submit_assignment(user, lesson_id, submission_data):
     """
     Submit assignment for a lesson.
-    submission_data: dict with 'submission_text', 'submission_file', 'submission_url', 'github_repo'
+    submission_data: dict with 'submission_text', 'submission_file', 'submission_url', 'github_repo', 'code_snippet'
     Returns: (success, message, submission)
     """
     try:
@@ -41,6 +41,7 @@ def submit_assignment(user, lesson_id, submission_data):
             submission_file=submission_data.get('submission_file'),
             submission_url=submission_data.get('submission_url', ''),
             github_repo=submission_data.get('github_repo', ''),
+            code_snippet=submission_data.get('code_snippet', ''),
             status='submitted',
             submitted_at=timezone.now(),
             attempt_number=existing_submissions + 1,

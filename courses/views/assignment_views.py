@@ -15,14 +15,16 @@ def submit_assignment_view(request, lesson_id):
         "submission_text": "...",
         "submission_file": <file>,
         "submission_url": "...",
-        "github_repo": "..."
+        "github_repo": "...",
+        "code_snippet": "..."
     }
     """
     submission_data = {
         'submission_text': request.data.get('submission_text', ''),
         'submission_file': request.FILES.get('submission_file'),
         'submission_url': request.data.get('submission_url', ''),
-        'github_repo': request.data.get('github_repo', '')
+        'github_repo': request.data.get('github_repo', ''),
+        'code_snippet': request.data.get('code_snippet', '')
     }
     
     success, message, submission = submit_assignment(request.user, lesson_id, submission_data)
@@ -52,7 +54,8 @@ def submit_assignment_and_complete_view(request, lesson_id):
         'submission_text': request.data.get('submission_text', ''),
         'submission_file': request.FILES.get('submission_file'),
         'submission_url': request.data.get('submission_url', ''),
-        'github_repo': request.data.get('github_repo', '')
+        'github_repo': request.data.get('github_repo', ''),
+        'code_snippet': request.data.get('code_snippet', '')
     }
     
     success, message, submission = submit_assignment(request.user, lesson_id, submission_data)

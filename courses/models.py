@@ -1507,6 +1507,7 @@ class AssignmentSubmission(models.Model):
     submission_file = models.FileField(upload_to='assignment_submissions/', null=True, blank=True)
     submission_url = models.URLField(blank=True)
     github_repo = models.URLField(blank=True, help_text="GitHub repository URL")
+    code_snippet = models.TextField(blank=True)
     
     # Status and grading
     status = models.CharField(max_length=20, choices=SUBMISSION_STATUS_CHOICES, default='draft')
