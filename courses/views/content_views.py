@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Count
-from courses.models import Course, Enrollment, Lesson, LessonProgress, Module
+from courses.models import Course, Enrollment, Lesson, LessonProgress, Module, AssessmentAttempt
 from courses.services.access_service import is_lesson_accessible, is_module_accessible
 from courses.services.pagination import paginate_queryset_or_list
 
@@ -40,8 +40,78 @@ def list_course_modules_view(request, course_id):
             'lesson_count': m.lesson_count,
             'unlocked': is_unlocked,
         })
-    # Apply pagination
-    return paginate_queryset_or_list(request, data)
+    
+    # Add final assessment at the bottom if course requires it
+    final_assessment_data = None
+    if course.requires_final_assessment:
+        assessment = getattr(course, 'final_assessment', None)
+        
+        # Check if student can access (all lessons completed)
+        total_lessons = Lesson.objects.filter(course=course).count()
+        completed_lessons = 0
+        has_passed = False
+        best_score = None
+        attempts_count = 0
+        
+        if enrollment:
+            completed_lessons = LessonProgress.objects.filter(
+                enrollment=enrollment,
+                completed=True
+            ).count()
+            
+            # Get attempt info if assessment exists
+            if assessment:
+                attempts = AssessmentAttempt.objects.filter(
+                    student=request.user,
+                    assessment=assessment
+                )
+                attempts_count = attempts.count()
+                has_passed = attempts.filter(passed=True).exists()
+                best_attempt = attempts.order_by('-score').first()
+                if best_attempt:
+                    best_score = best_attempt.score
+        
+        can_access = (completed_lessons >= total_lessons) or is_instructor
+        
+        if assessment:
+            final_assessment_data = {
+                'id': assessment.id,
+                'title': assessment.title,
+                'description': assessment.description,
+                'passing_score': assessment.passing_score,
+                'time_limit': assessment.time_limit,
+                'unlocked': can_access,
+                'is_completed': has_passed,
+                'attempts_count': attempts_count,
+                'best_score': best_score,
+                'lessons_remaining': max(0, total_lessons - completed_lessons),
+                'is_active': assessment.is_active
+            }
+        else:
+            # Assessment required but not created yet
+            final_assessment_data = {
+                'id': None,
+                'title': 'Final Course Assessment',
+                'description': 'Assessment not yet created by instructor',
+                'passing_score': None,
+                'time_limit': None,
+                'unlocked': False,
+                'is_completed': False,
+                'attempts_count': 0,
+                'best_score': None,
+                'lessons_remaining': max(0, total_lessons - completed_lessons),
+                'is_active': False,
+                'not_created': True
+            }
+    
+    # Build response with pagination
+    paginated_response = paginate_queryset_or_list(request, data)
+    
+    # Add final assessment to response
+    if hasattr(paginated_response, 'data'):
+        paginated_response.data['final_assessment'] = final_assessment_data
+    
+    return paginated_response
 
 
 

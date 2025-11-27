@@ -1728,7 +1728,10 @@ class FinalCourseAssessment(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     passing_score = models.PositiveIntegerField(default=70, help_text="Passing score percentage")
-    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum attempts allowed")
+    max_attempts = models.PositiveIntegerField(
+        default=0, 
+        help_text="Maximum attempts allowed. 0 = unlimited attempts"
+    )
     time_limit = models.PositiveIntegerField(default=60, help_text="Time limit in minutes")
     randomize_questions = models.BooleanField(default=True)
     show_correct_answers = models.BooleanField(default=True)
@@ -1742,6 +1745,10 @@ class FinalCourseAssessment(models.Model):
     
     def __str__(self):
         return f"Final Assessment - {self.course.title}"
+    
+    @property
+    def has_unlimited_attempts(self):
+        return self.max_attempts == 0
 
 
 class AssessmentQuestion(models.Model):
