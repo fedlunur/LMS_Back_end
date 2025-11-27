@@ -313,6 +313,7 @@ urlpatterns = [
 
     # Generics
     re_path("api/", include(router.urls)),
+    path('api/grading/', include('grading.urls')),
     re_path("api/constants/", constants_view, name="constants"),
 
     # Payments

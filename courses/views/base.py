@@ -402,7 +402,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                          getattr(getattr(instance, 'module', None), 'course', None) or \
                          getattr(getattr(instance, 'lesson', None), 'course', None) or \
                          getattr(getattr(instance, 'assessment', None), 'course', None) or \
-                         getattr(getattr(getattr(instance, 'question', None), 'assessment', None), 'course', None)
+                         getattr(getattr(getattr(instance, 'question', None), 'assessment', None), 'course', None) or \
+                         getattr(getattr(getattr(instance, 'question', None), 'lesson', None), 'course', None)
                 if not course or course.instructor_id != user.id:
                     return self.failure_response("You are not allowed to modify this content.", status.HTTP_403_FORBIDDEN)
             elif model_name in [
@@ -419,6 +420,11 @@ class GenericModelViewSet(viewsets.ModelViewSet):
 
         serializer.save()
         return self.success_response(serializer.data, "Updated successfully")
+
+    # Partial Update (PATCH)
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
     #  Delete
     def destroy(self, request, *args, **kwargs):
@@ -449,7 +455,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                          getattr(getattr(instance, 'module', None), 'course', None) or \
                          getattr(getattr(instance, 'lesson', None), 'course', None) or \
                          getattr(getattr(instance, 'assessment', None), 'course', None) or \
-                         getattr(getattr(getattr(instance, 'question', None), 'assessment', None), 'course', None)
+                         getattr(getattr(getattr(instance, 'question', None), 'assessment', None), 'course', None) or \
+                         getattr(getattr(getattr(instance, 'question', None), 'lesson', None), 'course', None)
                 if not course or course.instructor_id != user.id:
                     return self.failure_response("You are not allowed to delete this content.", status.HTTP_403_FORBIDDEN)
             elif model_name in [

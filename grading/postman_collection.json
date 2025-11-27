@@ -1,0 +1,181 @@
+{
+	"info": {
+		"_postman_id": "grading-api-collection",
+		"name": "LMS Grading API",
+		"description": "API endpoints for the LMS Grading System",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000"
+		},
+		{
+			"key": "access_token",
+			"value": "YOUR_JWT_TOKEN_HERE"
+		},
+		{
+			"key": "course_id",
+			"value": "1"
+		},
+		{
+			"key": "student_id",
+			"value": "1"
+		},
+		{
+			"key": "lesson_id",
+			"value": "1"
+		},
+		{
+			"key": "assessment_id",
+			"value": "1"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth - Get Token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"if (jsonData.access) {",
+							"    pm.collectionVariables.set('access_token', jsonData.access);",
+							"}",
+							"if (jsonData.refresh) {",
+							"    pm.collectionVariables.set('refresh_token', jsonData.refresh);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"email\": \"teacher@example.com\",\n    \"password\": \"your_password\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/token/",
+					"host": ["{{base_url}}"],
+					"path": ["api", "token", ""]
+				},
+				"description": "Login to get JWT access token. The token is automatically saved to collection variables."
+			},
+			"response": []
+		},
+		{
+			"name": "Teacher - Get Grading Table",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/api/grading/teacher/course/{{course_id}}/table/",
+					"host": ["{{base_url}}"],
+					"path": ["api", "grading", "teacher", "course", "{{course_id}}", "table", ""]
+				},
+				"description": "Returns the dynamic grading table schema and all enrolled students with their grades for a specific course.\n\nResponse includes:\n- schema: modules, lessons (quiz/assignment), final assessment with weights\n- students: array of student rows with grades per lesson and total score"
+			},
+			"response": []
+		},
+		{
+			"name": "Teacher - Update Lesson Grade",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"student_id\": 1,\n    \"course_id\": 1,\n    \"lesson_id\": 1,\n    \"score_percentage\": 85.5,\n    \"feedback\": \"Good work on the quiz!\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/grading/teacher/grade/update/",
+					"host": ["{{base_url}}"],
+					"path": ["api", "grading", "teacher", "grade", "update", ""]
+				},
+				"description": "Updates or overrides a student's grade for a specific lesson (quiz or assignment).\n\nRequired fields:\n- student_id: ID of the student\n- course_id: ID of the course\n- lesson_id: ID of the lesson (quiz or assignment)\n- score_percentage: Score from 0 to 100\n\nOptional fields:\n- feedback: Text feedback for the student"
+			},
+			"response": []
+		},
+		{
+			"name": "Teacher - Update Final Assessment Grade",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"student_id\": 1,\n    \"course_id\": 1,\n    \"assessment_id\": 1,\n    \"score_percentage\": 92.0\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/grading/teacher/grade/update/",
+					"host": ["{{base_url}}"],
+					"path": ["api", "grading", "teacher", "grade", "update", ""]
+				},
+				"description": "Updates or overrides a student's grade for the final course assessment.\n\nRequired fields:\n- student_id: ID of the student\n- course_id: ID of the course\n- assessment_id: ID of the final assessment\n- score_percentage: Score from 0 to 100"
+			},
+			"response": []
+		},
+		{
+			"name": "Student - Get My Grading Report",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/api/grading/student/course/{{course_id}}/report/",
+					"host": ["{{base_url}}"],
+					"path": ["api", "grading", "student", "course", "{{course_id}}", "report", ""]
+				},
+				"description": "Returns the authenticated student's detailed grade report for a specific course.\n\nResponse includes:\n- course_title\n- total_score: Final percentage\n- status: passed/failed/in_progress\n- breakdown: Array of modules with lessons and their scores\n- final_assessment: Score if applicable"
+			},
+			"response": []
+		}
+	]
+}

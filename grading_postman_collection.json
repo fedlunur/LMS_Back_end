@@ -1,0 +1,192 @@
+{
+	"info": {
+		"_postman_id": "b6a1d2e3-4f5a-6b7c-8d9e-0f1a2b3c4d5e",
+		"name": "LMS Grading API",
+		"description": "Collection of API endpoints for the LMS Dynamic Grading System",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Teacher",
+			"item": [
+				{
+					"name": "Get Grading Table",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/grading/teacher/course/:course_id/table/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"grading",
+								"teacher",
+								"course",
+								":course_id",
+								"table",
+								""
+							],
+							"variable": [
+								{
+									"key": "course_id",
+									"value": "1",
+									"description": "ID of the course"
+								}
+							]
+						},
+						"description": "Retrieves the dynamic grading table schema and all student grades for a specific course. Requires the user to be the instructor of the course."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Student Grade",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"student_id\": 2,\n    \"course_id\": 1,\n    \"lesson_id\": 10,\n    \"score_percentage\": 95.5,\n    \"feedback\": \"Excellent work on this assignment!\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/grading/teacher/grade/update/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"grading",
+								"teacher",
+								"grade",
+								"update",
+								""
+							]
+						},
+						"description": "Updates or overrides a student's score for a specific lesson or final assessment. Provide either `lesson_id` OR `assessment_id`."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Student Final Assessment Grade",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"student_id\": 2,\n    \"course_id\": 1,\n    \"assessment_id\": 5,\n    \"score_percentage\": 88.0,\n    \"feedback\": \"Passed with distinction.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/grading/teacher/grade/update/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"grading",
+								"teacher",
+								"grade",
+								"update",
+								""
+							]
+						},
+						"description": "Variant of Update Grade specifically for the Final Course Assessment."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Student",
+			"item": [
+				{
+					"name": "Get Grading Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/grading/student/course/:course_id/report/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"grading",
+								"student",
+								"course",
+								":course_id",
+								"report",
+								""
+							],
+							"variable": [
+								{
+									"key": "course_id",
+									"value": "1",
+									"description": "ID of the course"
+								}
+							]
+						},
+						"description": "Retrieves the detailed score report for the currently authenticated student in a specific course."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "YOUR_JWT_TOKEN_HERE",
+			"type": "string"
+		}
+	]
+}
