@@ -81,6 +81,8 @@ from courses.views.assessment_views import (
     get_course_structure_view,
     get_assessment_attempts_view,
     start_final_assessment_view,
+    get_assessment_results_view,
+    teacher_get_assessment_questions_view,
 )
 from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
@@ -245,6 +247,8 @@ urlpatterns = [
     re_path(r'^api/submit-final-assessment/(?P<course_id>\d+)/$', submit_final_assessment_view, name='submit_final_assessment'),
     re_path(r'^api/final-assessment/status/(?P<course_id>\d+)/$', get_final_assessment_status_view, name='get_final_assessment_status'),
     re_path(r'^api/final-assessment/attempts/(?P<course_id>\d+)/$', get_assessment_attempts_view, name='get_assessment_attempts'),
+    re_path(r'^api/final-assessment/results/(?P<course_id>\d+)/$', get_assessment_results_view, name='get_assessment_results'),
+    re_path(r'^api/teacher/final-assessment/questions/(?P<course_id>\d+)/$', teacher_get_assessment_questions_view, name='teacher_assessment_questions'),
     re_path(r'^api/course-structure/(?P<course_id>\d+)/$', get_course_structure_view, name='get_course_structure'),
     
     # Progress endpoints

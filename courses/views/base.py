@@ -214,7 +214,8 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             protected = [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
                 'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
-                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz'
+                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz',
+                'finalcourseassessment', 'assessmentquestion', 'assessmentanswer'
             ]
             if model_name in protected:
                 try:
@@ -259,6 +260,25 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                         course_id = data.get("course")
                         if course_id and Course:
                             course = Course.objects.get(pk=course_id)
+                    elif model_name == "finalcourseassessment":
+                        course_id = data.get("course")
+                        if course_id and Course:
+                            course = Course.objects.get(pk=course_id)
+                    elif model_name == "assessmentquestion":
+                        assessment_id = data.get("assessment")
+                        if assessment_id:
+                            FinalCourseAssessment = model_mapping.get("finalcourseassessment")
+                            if FinalCourseAssessment:
+                                assessment = FinalCourseAssessment.objects.get(pk=assessment_id)
+                                course = getattr(assessment, "course", None)
+                    elif model_name == "assessmentanswer":
+                        question_id = data.get("question")
+                        if question_id:
+                            AssessmentQuestion = model_mapping.get("assessmentquestion")
+                            if AssessmentQuestion:
+                                question = AssessmentQuestion.objects.get(pk=question_id)
+                                assessment = getattr(question, "assessment", None)
+                                course = getattr(assessment, "course", None) if assessment else None
 
                     if not course or getattr(course, "instructor_id", None) != user.id:
                         return self.failure_response("You are not allowed to create this content.", status.HTTP_403_FORBIDDEN)
@@ -375,11 +395,14 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             elif model_name in [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
                 'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
-                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz'
+                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz',
+                'finalcourseassessment', 'assessmentquestion', 'assessmentanswer'
             ]:
                 course = getattr(instance, 'course', None) or \
                          getattr(getattr(instance, 'module', None), 'course', None) or \
-                         getattr(getattr(instance, 'lesson', None), 'course', None)
+                         getattr(getattr(instance, 'lesson', None), 'course', None) or \
+                         getattr(getattr(instance, 'assessment', None), 'course', None) or \
+                         getattr(getattr(getattr(instance, 'question', None), 'assessment', None), 'course', None)
                 if not course or course.instructor_id != user.id:
                     return self.failure_response("You are not allowed to modify this content.", status.HTTP_403_FORBIDDEN)
             elif model_name in [
@@ -419,11 +442,14 @@ class GenericModelViewSet(viewsets.ModelViewSet):
             elif model_name in [
                 'module', 'lesson', 'videolesson', 'quizlesson', 'assignmentlesson', 'articlelesson',
                 'lessonresource', 'lessonattachment', 'quizquestion', 'quizanswer', 'quizconfiguration',
-                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz'
+                'course_overview', 'course_faq', 'courseresource', 'courseannouncement', 'videocheckpointquiz',
+                'finalcourseassessment', 'assessmentquestion', 'assessmentanswer'
             ]:
                 course = getattr(instance, 'course', None) or \
                          getattr(getattr(instance, 'module', None), 'course', None) or \
-                         getattr(getattr(instance, 'lesson', None), 'course', None)
+                         getattr(getattr(instance, 'lesson', None), 'course', None) or \
+                         getattr(getattr(instance, 'assessment', None), 'course', None) or \
+                         getattr(getattr(getattr(instance, 'question', None), 'assessment', None), 'course', None)
                 if not course or course.instructor_id != user.id:
                     return self.failure_response("You are not allowed to delete this content.", status.HTTP_403_FORBIDDEN)
             elif model_name in [

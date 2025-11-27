@@ -42,14 +42,39 @@ services:
       timeout: 3s
       retries: 5
 
+# For production mode:
+# *****************************************************************************************************************
+  # web:
+  #   build: .
+  #   command: daphne -b 0.0.0.0 -p 8888 lms_project.asgi:application
+  #   networks:
+  #     - lmsbackend_my_network
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy   
+  #     redis:
+  #       condition: service_healthy
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - .:/code
+  #     - ./media:/code/media
+  #     - ./static:/code/static
+  #     - ./templates:/code/templates
+  #   ports:
+  #     - "8888:8888"
+
+# *****************************************************************************************************************
+# For development mode:
+# *****************************************************************************************************************
   web:
     build: .
-    command: daphne -b 0.0.0.0 -p 8888 lms_project.asgi:application
+    command: python manage.py runserver 0.0.0.0:8888
     networks:
       - lmsbackend_my_network
     depends_on:
       db:
-        condition: service_healthy   
+        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
@@ -61,6 +86,7 @@ services:
       - ./templates:/code/templates
     ports:
       - "8888:8888"
+# *****************************************************************************************************************
 
 networks:
   lmsbackend_my_network:

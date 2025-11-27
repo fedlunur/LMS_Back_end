@@ -52,6 +52,7 @@ def list_course_modules_view(request, course_id):
         has_passed = False
         best_score = None
         attempts_count = 0
+        last_attempt = None
         
         if enrollment:
             completed_lessons = LessonProgress.objects.filter(
@@ -64,12 +65,19 @@ def list_course_modules_view(request, course_id):
                 attempts = AssessmentAttempt.objects.filter(
                     student=request.user,
                     assessment=assessment
-                )
+                ).order_by('-completed_at')
                 attempts_count = attempts.count()
                 has_passed = attempts.filter(passed=True).exists()
                 best_attempt = attempts.order_by('-score').first()
                 if best_attempt:
                     best_score = best_attempt.score
+                if attempts.exists():
+                    last = attempts.first()
+                    last_attempt = {
+                        'score': last.score,
+                        'passed': last.passed,
+                        'completed_at': last.completed_at.isoformat() if last.completed_at else None
+                    }
         
         can_access = (completed_lessons >= total_lessons) or is_instructor
         
@@ -78,14 +86,22 @@ def list_course_modules_view(request, course_id):
                 'id': assessment.id,
                 'title': assessment.title,
                 'description': assessment.description,
+                'type': 'final_assessment',
+                'order': len(data) + 1,  # Place after all modules
                 'passing_score': assessment.passing_score,
                 'time_limit': assessment.time_limit,
+                'total_questions': assessment.questions.count(),
                 'unlocked': can_access,
                 'is_completed': has_passed,
-                'attempts_count': attempts_count,
-                'best_score': best_score,
-                'lessons_remaining': max(0, total_lessons - completed_lessons),
-                'is_active': assessment.is_active
+                'is_active': assessment.is_active,
+                'progress': {
+                    'attempts_count': attempts_count,
+                    'best_score': best_score,
+                    'last_attempt': last_attempt,
+                    'lessons_completed': completed_lessons,
+                    'lessons_total': total_lessons,
+                    'lessons_remaining': max(0, total_lessons - completed_lessons)
+                }
             }
         else:
             # Assessment required but not created yet
@@ -93,23 +109,37 @@ def list_course_modules_view(request, course_id):
                 'id': None,
                 'title': 'Final Course Assessment',
                 'description': 'Assessment not yet created by instructor',
+                'type': 'final_assessment',
+                'order': len(data) + 1,
                 'passing_score': None,
                 'time_limit': None,
+                'total_questions': 0,
                 'unlocked': False,
                 'is_completed': False,
-                'attempts_count': 0,
-                'best_score': None,
-                'lessons_remaining': max(0, total_lessons - completed_lessons),
                 'is_active': False,
-                'not_created': True
+                'not_created': True,
+                'progress': {
+                    'attempts_count': 0,
+                    'best_score': None,
+                    'last_attempt': None,
+                    'lessons_completed': completed_lessons,
+                    'lessons_total': total_lessons,
+                    'lessons_remaining': max(0, total_lessons - completed_lessons)
+                }
             }
     
     # Build response with pagination
     paginated_response = paginate_queryset_or_list(request, data)
     
-    # Add final assessment to response
+    # Add final assessment and course info to response
     if hasattr(paginated_response, 'data'):
         paginated_response.data['final_assessment'] = final_assessment_data
+        paginated_response.data['course'] = {
+            'id': course.id,
+            'title': course.title,
+            'requires_final_assessment': course.requires_final_assessment,
+            'issue_certificate': course.issue_certificate
+        }
     
     return paginated_response
 

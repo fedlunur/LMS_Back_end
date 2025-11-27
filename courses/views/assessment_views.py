@@ -3,7 +3,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
-from courses.models import Enrollment, FinalCourseAssessment, AssessmentAttempt
+from courses.models import (
+    Enrollment, FinalCourseAssessment, AssessmentAttempt, 
+    AssessmentQuestion, AssessmentResponse
+)
 from courses.services.assessment_service import (
     can_take_final_assessment, 
     submit_final_assessment,
@@ -11,6 +14,50 @@ from courses.services.assessment_service import (
     get_course_structure_with_assessment
 )
 from ..serializers import DynamicFieldSerializer
+
+
+def format_assessment_questions(questions):
+    """
+    Format assessment questions like quiz questions for frontend consistency.
+    Returns questions with answers formatted properly per question type.
+    """
+    question_data = []
+    for q in questions:
+        q_data = {
+            'id': q.id,
+            'question_type': q.question_type,
+            'question_text': q.question_text,
+            'question_image': q.question_image.url if q.question_image else None,
+            'explanation': q.explanation,
+            'points': q.points,
+            'order': q.order,
+        }
+        
+        # Structure per question type (like quiz)
+        if q.question_type in ['multiple-choice', 'true-false']:
+            # Include answers without is_correct flag
+            q_data['answers'] = [
+                {
+                    'id': ans.id, 
+                    'answer_text': ans.answer_text,
+                    'answer_image': ans.answer_image.url if ans.answer_image else None,
+                    'order': ans.order
+                } 
+                for ans in q.answers.all().order_by('order')
+            ]
+        
+        elif q.question_type == 'fill-blank':
+            # For fill-blank, indicate number of blanks without revealing answers
+            blanks_count = len(q.blanks) if q.blanks else 1
+            q_data['blanks_count'] = blanks_count
+            q_data['blanks'] = []  # Empty - don't expose correct answers
+        
+        elif q.question_type == 'short-answer':
+            q_data['blanks_count'] = 1
+        
+        question_data.append(q_data)
+    
+    return question_data
 
 
 @api_view(['POST'])
@@ -59,14 +106,17 @@ def start_final_assessment_view(request, course_id):
             assessment=assessment
         ).count()
         
-        # Get questions
-        questions = assessment.questions.all()
+        # Get questions with prefetch for answers
+        questions = assessment.questions.prefetch_related('answers').all()
         
         # Randomize if enabled
         if assessment.randomize_questions:
-            questions = questions.order_by('?')
+            questions = list(questions)
+            import random
+            random.shuffle(questions)
         
-        question_serializer = DynamicFieldSerializer(questions, many=True, model_name="assessmentquestion")
+        # Format questions like quiz format
+        question_data = format_assessment_questions(questions)
         
         # Calculate end time based on time limit
         start_time = timezone.now()
@@ -88,9 +138,9 @@ def start_final_assessment_view(request, course_id):
                     "unlimited_attempts": assessment.has_unlimited_attempts,
                     "max_attempts": assessment.max_attempts if not assessment.has_unlimited_attempts else None,
                     "show_correct_answers": assessment.show_correct_answers,
-                    "total_questions": questions.count()
+                    "total_questions": len(question_data)
                 },
-                "questions": question_serializer.data,
+                "questions": question_data,
                 "attempt_number": attempt_count + 1,
                 "start_time": start_time.isoformat(),
                 "end_time": end_time.isoformat() if end_time else None
@@ -327,4 +377,155 @@ def get_assessment_attempts_view(request, course_id):
         return Response({
             "success": False,
             "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_assessment_results_view(request, course_id):
+    """
+    Get assessment results for the latest attempt (with correct answers if enabled).
+    Similar to quiz results view.
+    """
+    try:
+        enrollment = Enrollment.objects.get(student=request.user, course_id=course_id)
+        
+        assessment = getattr(enrollment.course, 'final_assessment', None)
+        if not assessment:
+            return Response({
+                "success": False,
+                "message": "Final assessment not found for this course."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get latest attempt
+        attempt = AssessmentAttempt.objects.filter(
+            student=request.user,
+            assessment=assessment
+        ).order_by('-completed_at').first()
+        
+        if not attempt:
+            return Response({
+                "success": True,
+                "data": {
+                    "has_attempt": False,
+                    "message": "You haven't taken this assessment yet."
+                },
+                "message": "No attempts yet."
+            }, status=status.HTTP_200_OK)
+        
+        # Get responses with questions and answers
+        responses = AssessmentResponse.objects.filter(
+            attempt=attempt
+        ).select_related('question', 'answer')
+        
+        result_data = {
+            "has_attempt": True,
+            "attempt": {
+                "id": attempt.id,
+                "score": attempt.score,
+                "correct_answers": attempt.correct_answers,
+                "total_questions": attempt.total_questions,
+                "earned_points": attempt.earned_points,
+                "total_points": attempt.total_points,
+                "passed": attempt.passed,
+                "attempt_number": attempt.attempt_number,
+                "completed_at": attempt.completed_at.isoformat() if attempt.completed_at else None
+            }
+        }
+        
+        return Response({
+            "success": True,
+            "data": result_data,
+            "message": "Assessment results retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Enrollment.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "You are not enrolled in this course."
+        }, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def teacher_get_assessment_questions_view(request, course_id):
+    """
+    Teacher: Get all assessment questions with correct answers for editing.
+    """
+    try:
+        from courses.models import Course
+        course = Course.objects.get(id=course_id)
+        
+        # Check if user is the instructor
+        if course.instructor != request.user and not request.user.is_staff:
+            return Response({
+                "success": False,
+                "message": "You are not authorized to view this assessment."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        assessment = getattr(course, 'final_assessment', None)
+        if not assessment:
+            return Response({
+                "success": False,
+                "message": "Final assessment not found for this course."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get questions with answers (including correct answers)
+        questions = assessment.questions.prefetch_related('answers').all().order_by('order')
+        
+        questions_data = []
+        for q in questions:
+            q_data = {
+                'id': q.id,
+                'question_type': q.question_type,
+                'question_text': q.question_text,
+                'question_image': q.question_image.url if q.question_image else None,
+                'explanation': q.explanation,
+                'points': q.points,
+                'order': q.order,
+                'blanks': q.blanks,
+                'created_at': q.created_at.isoformat() if q.created_at else None,
+                'updated_at': q.updated_at.isoformat() if q.updated_at else None,
+            }
+            
+            # Include all answers with is_correct flag (for teacher)
+            if q.question_type in ['multiple-choice', 'true-false']:
+                q_data['answers'] = [
+                    {
+                        'id': ans.id,
+                        'answer_text': ans.answer_text,
+                        'answer_image': ans.answer_image.url if ans.answer_image else None,
+                        'is_correct': ans.is_correct,
+                        'order': ans.order
+                    }
+                    for ans in q.answers.all().order_by('order')
+                ]
+            
+            questions_data.append(q_data)
+        
+        return Response({
+            "success": True,
+            "data": {
+                "assessment": {
+                    "id": assessment.id,
+                    "title": assessment.title,
+                    "description": assessment.description,
+                    "passing_score": assessment.passing_score,
+                    "time_limit": assessment.time_limit,
+                    "max_attempts": assessment.max_attempts,
+                    "randomize_questions": assessment.randomize_questions,
+                    "show_correct_answers": assessment.show_correct_answers,
+                    "is_active": assessment.is_active
+                },
+                "questions": questions_data,
+                "total_questions": len(questions_data),
+                "total_points": sum(q['points'] for q in questions_data)
+            },
+            "message": "Assessment questions retrieved successfully."
+        }, status=status.HTTP_200_OK)
+    
+    except Course.DoesNotExist:
+        return Response({
+            "success": False,
+            "message": "Course not found."
         }, status=status.HTTP_404_NOT_FOUND)
