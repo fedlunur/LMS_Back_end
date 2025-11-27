@@ -69,6 +69,13 @@ from courses.views import (
     get_public_statistics_view,
     get_top_rated_courses_view,
 )
+from courses.views.assignment_views import (
+    get_peer_review_view,
+    submit_peer_review_view,
+    teacher_get_submissions_view,
+    teacher_get_submission_detail_view,
+    teacher_grade_submission_view,
+)
 from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
     get_teacher_revenue_history_view,
@@ -216,6 +223,15 @@ urlpatterns = [
     re_path(r'^api/submit-assignment/(?P<lesson_id>\d+)/$', submit_assignment_view, name='submit_assignment'),
     re_path(r'^api/submit-assignment-complete/(?P<lesson_id>\d+)/$', submit_assignment_and_complete_view, name='submit_assignment_complete'),
     path('api/assignment-history/', student_assignment_history_view, name='student_assignment_history'),
+    
+    # Peer Review endpoints (Student)
+    re_path(r'^api/peer-review/(?P<lesson_id>\d+)/$', get_peer_review_view, name='get_peer_review'),
+    re_path(r'^api/peer-review/submit/(?P<peer_review_id>\d+)/$', submit_peer_review_view, name='submit_peer_review'),
+    
+    # Teacher Assignment Review endpoints
+    re_path(r'^api/teacher/assignment-submissions/(?P<lesson_id>\d+)/$', teacher_get_submissions_view, name='teacher_assignment_submissions'),
+    re_path(r'^api/teacher/submission/(?P<submission_id>\d+)/$', teacher_get_submission_detail_view, name='teacher_submission_detail'),
+    re_path(r'^api/teacher/submission/(?P<submission_id>\d+)/grade/$', teacher_grade_submission_view, name='teacher_grade_submission'),
     
     # Final Assessment endpoints
     re_path(r'^api/final-assessment/(?P<course_id>\d+)/$', get_final_assessment_view, name='get_final_assessment'),
