@@ -69,6 +69,21 @@ from courses.views import (
     get_public_statistics_view,
     get_top_rated_courses_view,
 )
+from courses.views.assignment_views import (
+    get_peer_review_view,
+    submit_peer_review_view,
+    teacher_get_submissions_view,
+    teacher_get_submission_detail_view,
+    teacher_grade_submission_view,
+)
+from courses.views.assessment_views import (
+    get_final_assessment_status_view,
+    get_course_structure_view,
+    get_assessment_attempts_view,
+    start_final_assessment_view,
+    get_assessment_results_view,
+    teacher_get_assessment_questions_view,
+)
 from courses.views.analytics_views import (
     get_teacher_earnings_overview_view,
     get_teacher_revenue_history_view,
@@ -217,9 +232,24 @@ urlpatterns = [
     re_path(r'^api/submit-assignment-complete/(?P<lesson_id>\d+)/$', submit_assignment_and_complete_view, name='submit_assignment_complete'),
     path('api/assignment-history/', student_assignment_history_view, name='student_assignment_history'),
     
+    # Peer Review endpoints (Student)
+    re_path(r'^api/peer-review/(?P<lesson_id>\d+)/$', get_peer_review_view, name='get_peer_review'),
+    re_path(r'^api/peer-review/submit/(?P<peer_review_id>\d+)/$', submit_peer_review_view, name='submit_peer_review'),
+    
+    # Teacher Assignment Review endpoints
+    re_path(r'^api/teacher/assignment-submissions/(?P<lesson_id>\d+)/$', teacher_get_submissions_view, name='teacher_assignment_submissions'),
+    re_path(r'^api/teacher/submission/(?P<submission_id>\d+)/$', teacher_get_submission_detail_view, name='teacher_submission_detail'),
+    re_path(r'^api/teacher/submission/(?P<submission_id>\d+)/grade/$', teacher_grade_submission_view, name='teacher_grade_submission'),
+    
     # Final Assessment endpoints
     re_path(r'^api/final-assessment/(?P<course_id>\d+)/$', get_final_assessment_view, name='get_final_assessment'),
+    re_path(r'^api/final-assessment/start/(?P<course_id>\d+)/$', start_final_assessment_view, name='start_final_assessment'),
     re_path(r'^api/submit-final-assessment/(?P<course_id>\d+)/$', submit_final_assessment_view, name='submit_final_assessment'),
+    re_path(r'^api/final-assessment/status/(?P<course_id>\d+)/$', get_final_assessment_status_view, name='get_final_assessment_status'),
+    re_path(r'^api/final-assessment/attempts/(?P<course_id>\d+)/$', get_assessment_attempts_view, name='get_assessment_attempts'),
+    re_path(r'^api/final-assessment/results/(?P<course_id>\d+)/$', get_assessment_results_view, name='get_assessment_results'),
+    re_path(r'^api/teacher/final-assessment/questions/(?P<course_id>\d+)/$', teacher_get_assessment_questions_view, name='teacher_assessment_questions'),
+    re_path(r'^api/course-structure/(?P<course_id>\d+)/$', get_course_structure_view, name='get_course_structure'),
     
     # Progress endpoints
     re_path(r'^api/course-progress/(?P<course_id>\d+)/$', get_course_progress_view, name='course_progress'),
@@ -283,6 +313,7 @@ urlpatterns = [
 
     # Generics
     re_path("api/", include(router.urls)),
+    path('api/grading/', include('grading.urls')),
     re_path("api/constants/", constants_view, name="constants"),
 
     # Payments

@@ -11,6 +11,7 @@ from .models import (
     VideoCheckpointQuiz, VideoCheckpointResponse, CheckpointQuizResponse,
     CourseRating, Conversation, Message,
     CourseOverview, CourseFAQ, AssignmentSubmission,
+    AssignmentSubmissionFile, PeerReviewAssignment, PeerRubricEvaluation, PeerReviewSummary,
     FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer,
     AssessmentAttempt, AssessmentResponse, Event, EventType,
     Notification, QuestionBank, QuestionBankQuestion, QuestionBankAnswer,
@@ -393,10 +394,58 @@ class LessonAttachmentAdmin(admin.ModelAdmin):
     list_filter = ("uploaded_at",)
 
 
+class AssignmentSubmissionFileInline(admin.TabularInline):
+    model = AssignmentSubmissionFile
+    extra = 0
+    readonly_fields = ("uploaded_at", "file_size")
+
+
+class PeerReviewAssignmentInline(admin.TabularInline):
+    model = PeerReviewAssignment
+    extra = 0
+    readonly_fields = ("reviewer", "is_completed", "completed_at", "created_at")
+    fk_name = "submission"
+
+
 @admin.register(AssignmentSubmission)
 class AssignmentSubmissionAdmin(admin.ModelAdmin):
-    list_display = ("student", "lesson", "status", "score", "is_late")
+    list_display = ("student", "lesson", "status", "score", "final_score", "is_late", "late_deduction_applied")
     list_filter = ("status", "is_late")
+    inlines = [AssignmentSubmissionFileInline, PeerReviewAssignmentInline]
+
+
+@admin.register(AssignmentSubmissionFile)
+class AssignmentSubmissionFileAdmin(admin.ModelAdmin):
+    list_display = ("submission", "original_filename", "file_size", "uploaded_at")
+    list_filter = ("uploaded_at",)
+    search_fields = ("original_filename", "submission__student__email")
+
+
+@admin.register(PeerReviewAssignment)
+class PeerReviewAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("id", "submission", "reviewer", "lesson", "is_completed", "completed_at")
+    list_filter = ("is_completed", "lesson")
+    search_fields = ("reviewer__email", "submission__student__email")
+
+
+class PeerRubricEvaluationInline(admin.TabularInline):
+    model = PeerRubricEvaluation
+    extra = 0
+    readonly_fields = ("created_at",)
+
+
+@admin.register(PeerRubricEvaluation)
+class PeerRubricEvaluationAdmin(admin.ModelAdmin):
+    list_display = ("peer_review", "criterion_name", "points_awarded", "max_points")
+    list_filter = ("peer_review__lesson",)
+    search_fields = ("criterion_name",)
+
+
+@admin.register(PeerReviewSummary)
+class PeerReviewSummaryAdmin(admin.ModelAdmin):
+    list_display = ("submission", "total_rubric_score", "max_rubric_score", "reviewed_at")
+    list_filter = ("reviewed_at",)
+    search_fields = ("submission__student__email",)
 
 
 @admin.register(ModuleProgress)

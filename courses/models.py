@@ -720,15 +720,28 @@ class AssignmentLesson(models.Model):
     max_score = models.FloatField(default=100)
     max_attempts = models.PositiveIntegerField(default=1)
     rubric = models.TextField(blank=True)
-    rubric_criteria =  models.JSONField(default=list, blank=True)
-    peer_review = models.BooleanField(default=False)
+    rubric_criteria = models.JSONField(default=list, blank=True, help_text='List of rubric criteria: [{"name": "...", "description": "...", "max_points": 10}, ...]')
+    peer_review_enabled = models.BooleanField(default=False, help_text="Enable peer review for this assignment")
+    peer_review = models.BooleanField(default=False)  # Deprecated, use peer_review_enabled
     word_limit = models.PositiveIntegerField(null=True, blank=True)
     allow_late_submission = models.BooleanField(default=True)
-    late_deduction = models.FloatField(default=10.0)
+    late_deduction_per_day = models.FloatField(default=10.0, help_text="Percentage deducted per day late")
+    late_deduction_max = models.FloatField(default=50.0, help_text="Maximum late deduction percentage")
+    late_deduction = models.FloatField(default=10.0)  # Deprecated, use late_deduction_per_day
+    max_files = models.PositiveIntegerField(default=5, help_text="Maximum number of files a student can upload")
     
     class Meta:
-       
         verbose_name_plural = "AssignmentLesson"
+    
+    def calculate_late_deduction(self, submission_time):
+        """Calculate late deduction percentage based on submission time"""
+        if not self.due_date or not self.allow_late_submission:
+            return 0.0
+        if submission_time <= self.due_date:
+            return 0.0
+        days_late = (submission_time - self.due_date).days + 1
+        deduction = days_late * self.late_deduction_per_day
+        return min(deduction, self.late_deduction_max)
 
 
 # --- Article content -------------------------------------------------------
@@ -1494,6 +1507,8 @@ class AssignmentSubmission(models.Model):
     SUBMISSION_STATUS_CHOICES = [
         ('draft', 'Draft'),
         ('submitted', 'Submitted'),
+        ('pending_peer_review', 'Pending Peer Review'),
+        ('peer_reviewed', 'Peer Reviewed'),
         ('graded', 'Graded'),
         ('returned', 'Returned'),
     ]
@@ -1517,6 +1532,10 @@ class AssignmentSubmission(models.Model):
     graded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='graded_submissions')
     graded_at = models.DateTimeField(null=True, blank=True)
     
+    # Late submission
+    late_deduction_applied = models.FloatField(default=0.0, help_text="Percentage deducted for late submission")
+    final_score = models.FloatField(null=True, blank=True, help_text="Score after late deduction applied")
+    
     # Timing
     submitted_at = models.DateTimeField(null=True, blank=True)
     is_late = models.BooleanField(default=False)
@@ -1530,14 +1549,128 @@ class AssignmentSubmission(models.Model):
         verbose_name_plural = "Assignment Submissions"
     
     def save(self, *args, **kwargs):
-        # Check if submission is late
-        if self.lesson.assignment and self.lesson.assignment.due_date and self.submitted_at:
-            if self.submitted_at > self.lesson.assignment.due_date:
+        # Check if submission is late and calculate deduction
+        assignment = getattr(self.lesson, 'assignment', None)
+        if assignment and assignment.due_date and self.submitted_at:
+            if self.submitted_at > assignment.due_date:
                 self.is_late = True
+                self.late_deduction_applied = assignment.calculate_late_deduction(self.submitted_at)
+        # Calculate final score after late deduction
+        if self.score is not None:
+            deduction_amount = (self.score * self.late_deduction_applied / 100)
+            self.final_score = max(0, self.score - deduction_amount)
         super().save(*args, **kwargs)
     
     def __str__(self):
         return f"{self.student.email} - {self.lesson.title} - {self.status}"
+
+
+class AssignmentSubmissionFile(models.Model):
+    """Multiple file uploads for assignment submissions (max 5 per submission)"""
+    submission = models.ForeignKey(
+        AssignmentSubmission, 
+        on_delete=models.CASCADE, 
+        related_name='files'
+    )
+    file = models.FileField(upload_to='assignment_submission_files/')
+    original_filename = models.CharField(max_length=255, blank=True)
+    file_size = models.PositiveIntegerField(default=0, help_text="File size in bytes")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name_plural = "Assignment Submission Files"
+        ordering = ['uploaded_at']
+    
+    def save(self, *args, **kwargs):
+        if self.file and not self.original_filename:
+            self.original_filename = self.file.name
+        if self.file:
+            try:
+                self.file_size = self.file.size
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.submission.student.email} - {self.original_filename}"
+
+
+class PeerReviewAssignment(models.Model):
+    """Assigns a student to review another student's submission anonymously"""
+    submission = models.ForeignKey(
+        AssignmentSubmission,
+        on_delete=models.CASCADE,
+        related_name='peer_review_assignments'
+    )
+    reviewer = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='peer_reviews_to_do'
+    )
+    lesson = models.ForeignKey(
+        Lesson,
+        on_delete=models.CASCADE,
+        related_name='peer_review_assignments'
+    )
+    
+    # Status
+    is_completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name_plural = "Peer Review Assignments"
+        unique_together = ['submission', 'reviewer']
+        indexes = [
+            models.Index(fields=['reviewer', 'is_completed']),
+            models.Index(fields=['lesson', 'is_completed']),
+        ]
+    
+    def __str__(self):
+        return f"Review by {self.reviewer.email} for submission #{self.submission.id}"
+
+
+class PeerRubricEvaluation(models.Model):
+    """Rubric-based evaluation by peer reviewer"""
+    peer_review = models.ForeignKey(
+        PeerReviewAssignment,
+        on_delete=models.CASCADE,
+        related_name='rubric_evaluations'
+    )
+    criterion_name = models.CharField(max_length=200)
+    criterion_description = models.TextField(blank=True)
+    max_points = models.FloatField(default=10)
+    points_awarded = models.FloatField(default=0)
+    feedback = models.TextField(blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "Peer Rubric Evaluations"
+    
+    def __str__(self):
+        return f"{self.criterion_name}: {self.points_awarded}/{self.max_points}"
+
+
+class PeerReviewSummary(models.Model):
+    """Summary of peer review for a submission - visible to teacher only"""
+    submission = models.OneToOneField(
+        AssignmentSubmission,
+        on_delete=models.CASCADE,
+        related_name='peer_review_summary'
+    )
+    total_rubric_score = models.FloatField(default=0)
+    max_rubric_score = models.FloatField(default=0)
+    overall_feedback = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        verbose_name_plural = "Peer Review Summaries"
+    
+    def __str__(self):
+        return f"Peer review summary for submission #{self.submission.id}"
 
 
 class ModuleProgress(models.Model):
@@ -1595,7 +1728,10 @@ class FinalCourseAssessment(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     passing_score = models.PositiveIntegerField(default=70, help_text="Passing score percentage")
-    max_attempts = models.PositiveIntegerField(default=3, help_text="Maximum attempts allowed")
+    max_attempts = models.PositiveIntegerField(
+        default=0, 
+        help_text="Maximum attempts allowed. 0 = unlimited attempts"
+    )
     time_limit = models.PositiveIntegerField(default=60, help_text="Time limit in minutes")
     randomize_questions = models.BooleanField(default=True)
     show_correct_answers = models.BooleanField(default=True)
@@ -1609,6 +1745,10 @@ class FinalCourseAssessment(models.Model):
     
     def __str__(self):
         return f"Final Assessment - {self.course.title}"
+    
+    @property
+    def has_unlimited_attempts(self):
+        return self.max_attempts == 0
 
 
 class AssessmentQuestion(models.Model):
