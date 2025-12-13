@@ -15,6 +15,7 @@ from .models import (
     FinalCourseAssessment, AssessmentQuestion, AssessmentAnswer,
     AssessmentAttempt, AssessmentResponse, Event, EventType,
     Notification, QuestionBank, QuestionBankQuestion, QuestionBankAnswer,
+    H5PLibrary, H5PContent, H5PFile,
 )
 
 
@@ -154,16 +155,17 @@ class LessonAdmin(admin.ModelAdmin):
 
 @admin.register(VideoLesson)
 class VideoLessonAdmin(admin.ModelAdmin):
-    list_display = ("lesson", "youtube_url", "duration")
+    list_display = ("lesson", "youtube_url", "duration", "h5p_content")
     search_fields = ("lesson__title",)
+    autocomplete_fields = ("h5p_content",)
     inlines = [VideoLessonAttachmentInline]
 
 @admin.register(QuizLesson)
 class QuizLessonAdmin(admin.ModelAdmin):
-    list_display = ("id", "lesson", "type", "time_limit", "passing_score", "attempts", "question_count")
+    list_display = ("id", "lesson", "type", "time_limit", "passing_score", "attempts", "question_count", "h5p_content")
     list_filter = ("type",)
     search_fields = ("lesson__title", "lesson__description")
-    autocomplete_fields = ("lesson",)
+    autocomplete_fields = ("lesson", "h5p_content")
 
     fieldsets = (
         ("Lesson Link", {"fields": ("lesson",)}),
@@ -611,3 +613,76 @@ class QuestionBankAnswerAdmin(admin.ModelAdmin):
         txt = obj.answer_text
         return txt[:50] + ("..." if len(txt) > 50 else "")
     answer_text_snippet.short_description = "Answer"
+
+
+# ================================
+# H5P CONTENT
+# ================================
+
+class H5PFileInline(admin.TabularInline):
+    model = H5PFile
+    extra = 0
+    readonly_fields = ("original_path", "file_type", "created_at")
+    fields = ("file", "original_path", "file_type", "created_at")
+
+
+@admin.register(H5PLibrary)
+class H5PLibraryAdmin(admin.ModelAdmin):
+    list_display = ("name", "title", "major_version", "minor_version", "patch_version", "runnable", "created_at")
+    list_filter = ("runnable", "major_version", "created_at")
+    search_fields = ("name", "title")
+    ordering = ("name", "-major_version", "-minor_version", "-patch_version")
+    readonly_fields = ("created_at", "updated_at")
+    
+    fieldsets = (
+        ("Library Information", {
+            "fields": ("name", "title", "major_version", "minor_version", "patch_version", "runnable")
+        }),
+        ("Library Files", {
+            "fields": ("library_path", "preloaded_js", "preloaded_css", "dependencies"),
+            "classes": ("collapse",)
+        }),
+        ("Metadata", {
+            "fields": ("metadata_settings",),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+
+@admin.register(H5PContent)
+class H5PContentAdmin(admin.ModelAdmin):
+    list_display = ("id", "title", "library", "created_at", "updated_at")
+    list_filter = ("library", "created_at")
+    search_fields = ("title", "library__name", "library__title")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at")
+    autocomplete_fields = ("library",)
+    inlines = [H5PFileInline]
+    
+    fieldsets = (
+        ("Content Information", {
+            "fields": ("title", "library", "content_path")
+        }),
+        ("Content Data", {
+            "fields": ("parameters", "metadata"),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+
+@admin.register(H5PFile)
+class H5PFileAdmin(admin.ModelAdmin):
+    list_display = ("id", "content", "file", "original_path", "file_type", "created_at")
+    list_filter = ("file_type", "created_at")
+    search_fields = ("content__title", "original_path", "file")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
+    autocomplete_fields = ("content",)

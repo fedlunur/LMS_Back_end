@@ -68,6 +68,13 @@ from courses.views import (
     # Public views
     get_public_statistics_view,
     get_top_rated_courses_view,
+    # H5P views
+    upload_h5p_file_view,
+    get_h5p_content_view,
+    get_lesson_h5p_content_view,
+    link_h5p_to_lesson_view,
+    list_h5p_libraries_view,
+    list_h5p_contents_view,
 )
 from courses.views.assignment_views import (
     get_peer_review_view,
@@ -173,6 +180,9 @@ for name in [
     "questionbank",
     "questionbankquestion",
     "questionbankanswer",
+    "h5plibrary",
+    "h5pcontent",
+    "h5pfile",
 ]:
     router.register(name, GenericModelViewSet, basename=name)
 
@@ -344,6 +354,14 @@ urlpatterns = [
     re_path(r'^api/notifications/(?P<notification_id>\d+)/read/?$', mark_notification_read_view, name='mark_notification_read'),
     re_path(r'^api/notifications/read-all/?$', mark_all_notifications_read_view, name='mark_all_notifications_read'),
     re_path(r'^api/notifications/(?P<notification_id>\d+)/?$', get_notification_view, name='get_notification'),
+    
+    # H5P endpoints
+    re_path(r'^api/h5p/upload/?$', upload_h5p_file_view, name='upload_h5p'),
+    re_path(r'^api/h5p/content/(?P<content_id>\d+)/?$', get_h5p_content_view, name='get_h5p_content'),
+    re_path(r'^api/h5p/lesson/(?P<lesson_id>\d+)/?$', get_lesson_h5p_content_view, name='get_lesson_h5p_content'),
+    re_path(r'^api/h5p/lesson/(?P<lesson_id>\d+)/link/?$', link_h5p_to_lesson_view, name='link_h5p_to_lesson'),
+    re_path(r'^api/h5p/libraries/?$', list_h5p_libraries_view, name='list_h5p_libraries'),
+    re_path(r'^api/h5p/contents/?$', list_h5p_contents_view, name='list_h5p_contents'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

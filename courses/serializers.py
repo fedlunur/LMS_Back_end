@@ -7,6 +7,7 @@ from django.conf import settings
 
 # Import your attachment models
 from courses.models import *  # Add more if needed
+from courses.h5p_utils import get_h5p_library_url, get_h5p_content_url
 
 # ----------------- WRITABLE NESTED FIELD -----------------
 class WritableNestedField(serializers.PrimaryKeyRelatedField):
@@ -342,3 +343,81 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
                     attachment_model.objects.create(**{fk_field_name: instance, "file": f})
 
         return instance
+
+
+# ---------------------------------------------------------------------------
+# H5P Serializers
+# ---------------------------------------------------------------------------
+
+
+class H5PLibrarySerializer(serializers.ModelSerializer):
+    """Serializer for H5P libraries"""
+    library_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = H5PLibrary
+        fields = [
+            'id', 'name', 'title', 'major_version', 'minor_version', 'patch_version',
+            'runnable', 'preloaded_js', 'preloaded_css', 'dependencies',
+            'library_path', 'library_url', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_library_url(self, obj):
+        """Get the URL prefix for library assets"""
+        return get_h5p_library_url(obj)
+
+
+class H5PFileSerializer(serializers.ModelSerializer):
+    """Serializer for H5P content files"""
+    file_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = H5PFile
+        fields = ['id', 'file', 'file_url', 'original_path', 'file_type', 'created_at']
+        read_only_fields = ['id', 'created_at']
+    
+    def get_file_url(self, obj):
+        """Get the full URL to the file"""
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+
+
+class H5PContentSerializer(serializers.ModelSerializer):
+    """Serializer for H5P content"""
+    library = H5PLibrarySerializer(read_only=True)
+    files = H5PFileSerializer(many=True, read_only=True)
+    content_url = serializers.SerializerMethodField()
+    file_urls = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = H5PContent
+        fields = [
+            'id', 'title', 'library', 'parameters', 'metadata',
+            'content_path', 'content_url', 'files', 'file_urls',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_content_url(self, obj):
+        """Get the URL prefix for content assets"""
+        return get_h5p_content_url(obj)
+    
+    def get_file_urls(self, obj):
+        """Get list of file URLs for frontend"""
+        request = self.context.get('request')
+        return [
+            request.build_absolute_uri(file.file.url) if request else file.file.url
+            for file in obj.files.all()
+        ]
+
+
+class H5PContentCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating H5P content (simpler, without nested objects)"""
+    class Meta:
+        model = H5PContent
+        fields = ['id', 'title', 'library', 'parameters', 'metadata']

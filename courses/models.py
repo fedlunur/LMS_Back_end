@@ -302,6 +302,14 @@ class VideoLesson(models.Model):
     description = models.TextField(blank=True)
     transcript = models.TextField(blank=True)
     duration = models.DurationField(null=True, blank=True)
+    h5p_content = models.ForeignKey(
+        'H5PContent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='video_lessons',
+        help_text="Optional H5P content for interactive video"
+    )
 
     class Meta:
         verbose_name_plural = "VideoLesson"
@@ -385,6 +393,14 @@ class QuizLesson(models.Model):
     randomize_questions = models.BooleanField(default=False)
     show_correct_answers = models.BooleanField(default=True)
     grading_policy = models.CharField(choices=GRADING_POLICY_CHOICES, max_length=20, default="highest")
+    h5p_content = models.ForeignKey(
+        'H5PContent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='quiz_lessons',
+        help_text="Optional H5P content for interactive quiz"
+    )
 
     class Meta:
         verbose_name_plural = "QuizLesson"
@@ -2106,3 +2122,72 @@ class QuestionBankAnswer(models.Model):
 
 
 # QuizBank
+
+
+# ---------------------------------------------------------------------------
+# H5P Content Integration
+# ---------------------------------------------------------------------------
+
+
+class H5PLibrary(models.Model):
+    """H5P libraries (reusable content types like Quiz, Video, etc.)"""
+    name = models.CharField(max_length=255, help_text="Machine name (e.g., 'H5P.Quiz')")
+    title = models.CharField(max_length=255, help_text="Human-readable title")
+    major_version = models.IntegerField()
+    minor_version = models.IntegerField()
+    patch_version = models.IntegerField()
+    runnable = models.BooleanField(default=False, help_text="Whether this library can be used directly as content")
+    metadata_settings = models.JSONField(null=True, blank=True, help_text="Library metadata settings from library.json")
+    preloaded_js = models.JSONField(default=list, blank=True, help_text="List of JS files to preload")
+    preloaded_css = models.JSONField(default=list, blank=True, help_text="List of CSS files to preload")
+    dependencies = models.JSONField(default=list, blank=True, help_text="List of dependent libraries")
+    library_path = models.CharField(max_length=500, blank=True, help_text="Path to library files on disk")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('name', 'major_version', 'minor_version', 'patch_version')
+        verbose_name_plural = "H5P Libraries"
+        indexes = [
+            models.Index(fields=['name', 'major_version', 'minor_version']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} {self.major_version}.{self.minor_version}.{self.patch_version}"
+
+
+class H5PContent(models.Model):
+    """H5P content instances"""
+    title = models.CharField(max_length=255)
+    library = models.ForeignKey(H5PLibrary, on_delete=models.CASCADE, related_name='contents')
+    parameters = models.JSONField(help_text="Content parameters from content/content.json")
+    metadata = models.JSONField(null=True, blank=True, help_text="Metadata from h5p.json")
+    content_path = models.CharField(max_length=500, blank=True, help_text="Path to content files on disk")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = "H5P Contents"
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.title} ({self.library.name})"
+
+
+class H5PFile(models.Model):
+    """Files associated with H5P content (images, videos, etc.)"""
+    content = models.ForeignKey(H5PContent, on_delete=models.CASCADE, related_name='files')
+    file = models.FileField(upload_to='h5p/content/%Y/%m/%d/')
+    original_path = models.CharField(max_length=500, blank=True, help_text="Original path in .h5p archive")
+    file_type = models.CharField(max_length=50, blank=True, help_text="File type (image, video, audio, etc.)")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name_plural = "H5P Files"
+        ordering = ['original_path']
+    
+    def __str__(self):
+        return f"{self.content.title} - {self.file.name}"

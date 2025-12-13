@@ -15,6 +15,14 @@ from .events_views import *
 from .notification_views import *
 from .question_bank_views import *
 from .public_views import *
+from .h5p_views import (
+    upload_h5p_file_view,
+    get_h5p_content_view,
+    get_lesson_h5p_content_view,
+    link_h5p_to_lesson_view,
+    list_h5p_libraries_view,
+    list_h5p_contents_view,
+)
 
 __all__ = [
     'GenericModelViewSet',
