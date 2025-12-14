@@ -76,6 +76,10 @@ from courses.views import (
     list_h5p_libraries_view,
     list_h5p_contents_view,
     save_h5p_result_view,
+    get_h5p_content_json_view,
+    get_h5p_library_file_view,
+    get_h5p_content_file_view,
+    get_h5p_core_files_view,
 )
 from courses.views.assignment_views import (
     get_peer_review_view,
@@ -359,11 +363,15 @@ urlpatterns = [
     # H5P endpoints
     re_path(r'^api/h5p/upload/?$', upload_h5p_file_view, name='upload_h5p'),
     re_path(r'^api/h5p/content/(?P<content_id>\d+)/?$', get_h5p_content_view, name='get_h5p_content'),
+    re_path(r'^api/h5p/content/(?P<content_id>\d+)/content\.json/?$', get_h5p_content_json_view, name='get_h5p_content_json'),
+    re_path(r'^api/h5p/content/(?P<content_id>\d+)/files/(?P<file_path>.+)/?$', get_h5p_content_file_view, name='get_h5p_content_file'),
     re_path(r'^api/h5p/lesson/(?P<lesson_id>\d+)/?$', get_lesson_h5p_content_view, name='get_lesson_h5p_content'),
     re_path(r'^api/h5p/lesson/(?P<lesson_id>\d+)/link/?$', link_h5p_to_lesson_view, name='link_h5p_to_lesson'),
     re_path(r'^api/h5p/libraries/?$', list_h5p_libraries_view, name='list_h5p_libraries'),
+    re_path(r'^api/h5p/library/(?P<library_id>\d+)/files/(?P<file_path>.+)/?$', get_h5p_library_file_view, name='get_h5p_library_file'),
     re_path(r'^api/h5p/contents/?$', list_h5p_contents_view, name='list_h5p_contents'),
     re_path(r'^api/h5p/result/?$', save_h5p_result_view, name='save_h5p_result'),
+    re_path(r'^api/h5p/core-files/?$', get_h5p_core_files_view, name='get_h5p_core_files'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

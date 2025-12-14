@@ -7,7 +7,7 @@ from django.conf import settings
 
 # Import your attachment models
 from courses.models import *  # Add more if needed
-from courses.h5p_utils import get_h5p_library_url, get_h5p_content_url
+from courses.h5p_utils import get_h5p_library_url, get_h5p_content_url, get_h5p_core_files
 
 # ----------------- WRITABLE NESTED FIELD -----------------
 class WritableNestedField(serializers.PrimaryKeyRelatedField):
@@ -388,47 +388,172 @@ class H5PFileSerializer(serializers.ModelSerializer):
 
 
 class H5PContentSerializer(serializers.ModelSerializer):
-    """Serializer for H5P content"""
+    """Serializer for H5P content - Full serializer with all fields (for admin/internal use)"""
     library = H5PLibrarySerializer(read_only=True)
     files = H5PFileSerializer(many=True, read_only=True)
     content_url = serializers.SerializerMethodField()
     file_urls = serializers.SerializerMethodField()
     lesson_id = serializers.SerializerMethodField()
+    content_json_url = serializers.SerializerMethodField()
+    embed_url = serializers.SerializerMethodField()
+    library_js_urls = serializers.SerializerMethodField()
+    library_css_urls = serializers.SerializerMethodField()
+    h5p_core_js_urls = serializers.SerializerMethodField()
+    h5p_core_css_urls = serializers.SerializerMethodField()
     
     class Meta:
         model = H5PContent
         fields = [
             'id', 'title', 'library', 'parameters', 'metadata',
             'content_path', 'content_url', 'files', 'file_urls',
+            'content_json_url', 'embed_url', 'library_js_urls', 'library_css_urls',
+            'h5p_core_js_urls', 'h5p_core_css_urls',
             'created_at', 'updated_at', 'lesson_id'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class H5PContentFrontendSerializer(serializers.ModelSerializer):
+    """
+    Optimized serializer for frontend React integration.
+    Returns only the data needed to render H5P content in a clean, organized structure.
+    """
+    # Core content data
+    content_json_url = serializers.SerializerMethodField()
+    
+    # H5P core files (required for all H5P content)
+    core_files = serializers.SerializerMethodField()
+    
+    # Library files (specific to this content type)
+    library_files = serializers.SerializerMethodField()
+    
+    # Optional context
+    lesson_id = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = H5PContent
+        fields = [
+            'id',
+            'title',
+            'content_json_url',
+            'core_files',
+            'library_files',
+            'lesson_id',
+        ]
+        read_only_fields = ['id']
     
     def get_lesson_id(self, obj):
         """Get the ID of the lesson this content belongs to"""
-        # Check video lessons
         video_lesson = obj.video_lessons.first()
         if video_lesson:
             return video_lesson.lesson.id
             
-        # Check quiz lessons
         quiz_lesson = obj.quiz_lessons.first()
         if quiz_lesson:
             return quiz_lesson.lesson.id
             
         return None
-
-    def get_content_url(self, obj):
-        """Get the URL prefix for content assets"""
-        return get_h5p_content_url(obj)
     
-    def get_file_urls(self, obj):
-        """Get list of file URLs for frontend"""
+    def get_content_json_url(self, obj):
+        """Get URL to content.json file (required for H5P rendering)"""
         request = self.context.get('request')
-        return [
-            request.build_absolute_uri(file.file.url) if request else file.file.url
-            for file in obj.files.all()
-        ]
+        if request:
+            return request.build_absolute_uri(f'/api/h5p/content/{obj.id}/content.json')
+        return f'/api/h5p/content/{obj.id}/content.json'
+    
+    def get_core_files(self, obj):
+        """
+        Get H5P core files organized by type.
+        Returns: {
+            "js": [...],  // Array of JS file URLs (load in order)
+            "css": [...]  // Array of CSS file URLs
+        }
+        """
+        request = self.context.get('request')
+        core_files = get_h5p_core_files(request)
+        return {
+            "js": core_files.get('core_js_urls', []),
+            "css": core_files.get('core_css_urls', []),
+        }
+    
+    def get_library_files(self, obj):
+        """
+        Get library-specific files organized by type.
+        Returns: {
+            "js": [...],  // Array of library JS file URLs
+            "css": [...]  // Array of library CSS file URLs
+        }
+        """
+        request = self.context.get('request')
+        
+        # Get library JS URLs
+        library = obj.library
+        js_files = library.preloaded_js or []
+        library_id = library.id
+        js_urls = []
+        
+        for js_file in js_files:
+            js_file_path = None
+            
+            if isinstance(js_file, dict):
+                path_value = js_file.get('path', '')
+                if isinstance(path_value, str):
+                    js_file_path = path_value
+                else:
+                    continue
+            elif isinstance(js_file, str):
+                js_file_path = js_file
+            else:
+                continue
+            
+            if not isinstance(js_file_path, str):
+                continue
+            
+            js_file_path = js_file_path.lstrip('/')
+            if not js_file_path:
+                continue
+                
+            if request:
+                url = request.build_absolute_uri(f'/api/h5p/library/{library_id}/files/{js_file_path}')
+            else:
+                url = f'/api/h5p/library/{library_id}/files/{js_file_path}'
+            js_urls.append(url)
+        
+        # Get library CSS URLs
+        css_files = library.preloaded_css or []
+        css_urls = []
+        
+        for css_file in css_files:
+            css_file_path = None
+            
+            if isinstance(css_file, dict):
+                path_value = css_file.get('path', '')
+                if isinstance(path_value, str):
+                    css_file_path = path_value
+                else:
+                    continue
+            elif isinstance(css_file, str):
+                css_file_path = css_file
+            else:
+                continue
+            
+            if not isinstance(css_file_path, str):
+                continue
+            
+            css_file_path = css_file_path.lstrip('/')
+            if not css_file_path:
+                continue
+                
+            if request:
+                url = request.build_absolute_uri(f'/api/h5p/library/{library_id}/files/{css_file_path}')
+            else:
+                url = f'/api/h5p/library/{library_id}/files/{css_file_path}'
+            css_urls.append(url)
+        
+        return {
+            "js": js_urls,
+            "css": css_urls,
+        }
 
 
 class H5PContentCreateSerializer(serializers.ModelSerializer):

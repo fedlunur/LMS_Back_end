@@ -8,18 +8,25 @@ Handles:
 """
 
 import os
+import json
 import tempfile
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse, Http404
+from django.conf import settings
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 
 from courses.models import H5PContent, H5PLibrary, Lesson, VideoLesson, QuizLesson, H5PResult
-from courses.h5p_utils import process_h5p_file
-from courses.serializers import H5PContentSerializer, H5PLibrarySerializer, H5PResultSerializer
+from courses.h5p_utils import process_h5p_file, get_h5p_core_files
+from courses.serializers import (
+    H5PContentSerializer, 
+    H5PContentFrontendSerializer,
+    H5PLibrarySerializer, 
+    H5PResultSerializer
+)
 
 
 
@@ -106,8 +113,8 @@ def upload_h5p_file_view(request):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Serialize and return
-        serializer = H5PContentSerializer(h5p_content, context={'request': request})
+        # Serialize and return - use frontend serializer for cleaner response
+        serializer = H5PContentFrontendSerializer(h5p_content, context={'request': request})
         return Response({
             'success': True,
             'content': serializer.data,
@@ -220,7 +227,8 @@ def get_lesson_h5p_content_view(request, lesson_id):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        serializer = H5PContentSerializer(h5p_content, context={'request': request})
+        # Use frontend-optimized serializer
+        serializer = H5PContentFrontendSerializer(h5p_content, context={'request': request})
         data = serializer.data
         # Explicitly set lesson_id from the request parameter
         data['lesson_id'] = int(lesson_id)
@@ -276,7 +284,8 @@ def link_h5p_to_lesson_view(request, lesson_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        serializer = H5PContentSerializer(h5p_content, context={'request': request})
+        # Use frontend serializer for cleaner response
+        serializer = H5PContentFrontendSerializer(h5p_content, context={'request': request})
         return Response({
             'success': True,
             'content': serializer.data,
@@ -332,7 +341,8 @@ def list_h5p_contents_view(request):
         content_ids = set(list(video_lessons) + list(quiz_lessons))
         contents = contents.filter(id__in=content_ids)
     
-    serializer = H5PContentSerializer(contents, many=True, context={'request': request})
+    # Use frontend serializer for list view as well
+    serializer = H5PContentFrontendSerializer(contents, many=True, context={'request': request})
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -401,4 +411,231 @@ def save_h5p_result_view(request):
             {'error': f'Error saving result: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_h5p_content_json_view(request, content_id):
+    """
+    Serve content.json for H5P content.
+    This is required for H5P rendering in React.
+    
+    Returns the content.json file as JSON response.
+    """
+    try:
+        h5p_content = H5PContent.objects.get(id=content_id)
+        
+        # Check access permissions (similar to get_h5p_content_view)
+        # For now, allow if user is authenticated
+        
+        # Build path to content.json
+        content_json_path = os.path.join(
+            settings.MEDIA_ROOT,
+            'h5p',
+            'content',
+            str(h5p_content.id),
+            'content.json'
+        )
+        
+        if not os.path.exists(content_json_path):
+            return Response(
+                {'error': 'content.json not found for this H5P content'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Read and return JSON
+        with open(content_json_path, 'r', encoding='utf-8') as f:
+            content_data = json.load(f)
+        
+        # Return as JSON response with proper headers
+        response = JsonResponse(content_data, json_dumps_params={'ensure_ascii': False})
+        response['Access-Control-Allow-Origin'] = '*'  # Adjust for production
+        response['Content-Type'] = 'application/json; charset=utf-8'
+        return response
+    
+    except H5PContent.DoesNotExist:
+        return Response(
+            {'error': 'H5P content not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Error reading content.json: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_h5p_library_file_view(request, library_id, file_path):
+    """
+    Serve library files for H5P rendering.
+    
+    Args:
+        library_id: ID of the H5PLibrary
+        file_path: Relative path to the file within the library (e.g., 'js/quiz.js')
+    
+    Returns the library file with appropriate content type.
+    """
+    try:
+        library = H5PLibrary.objects.get(id=library_id)
+        
+        # Build file path
+        if library.library_path:
+            library_base_path = os.path.join(settings.MEDIA_ROOT, library.library_path)
+        else:
+            library_base_path = os.path.join(
+                settings.MEDIA_ROOT,
+                'h5p',
+                'libraries',
+                f"{library.name}-{library.major_version}.{library.minor_version}.{library.patch_version}"
+            )
+        
+        # Sanitize file_path to prevent directory traversal
+        file_path = file_path.lstrip('/')
+        if '..' in file_path or file_path.startswith('/'):
+            return Response(
+                {'error': 'Invalid file path'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        full_file_path = os.path.join(library_base_path, file_path)
+        
+        # Ensure the file is within the library directory
+        if not os.path.abspath(full_file_path).startswith(os.path.abspath(library_base_path)):
+            return Response(
+                {'error': 'Invalid file path'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not os.path.exists(full_file_path) or not os.path.isfile(full_file_path):
+            return Response(
+                {'error': 'Library file not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Determine content type
+        ext = os.path.splitext(file_path)[1].lower()
+        content_types = {
+            '.js': 'application/javascript',
+            '.css': 'text/css',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+            '.woff': 'font/woff',
+            '.woff2': 'font/woff2',
+            '.ttf': 'font/ttf',
+            '.eot': 'application/vnd.ms-fontobject',
+        }
+        content_type = content_types.get(ext, 'application/octet-stream')
+        
+        # Serve file
+        response = FileResponse(open(full_file_path, 'rb'), content_type=content_type)
+        response['Access-Control-Allow-Origin'] = '*'  # Adjust for production
+        return response
+    
+    except H5PLibrary.DoesNotExist:
+        return Response(
+            {'error': 'H5P library not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Error serving library file: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_h5p_content_file_view(request, content_id, file_path):
+    """
+    Serve content files (images, videos, etc.) for H5P rendering.
+    
+    Args:
+        content_id: ID of the H5PContent
+        file_path: Relative path to the file within the content directory
+    """
+    try:
+        h5p_content = H5PContent.objects.get(id=content_id)
+        
+        # Build file path
+        content_base_path = os.path.join(
+            settings.MEDIA_ROOT,
+            'h5p',
+            'content',
+            str(h5p_content.id)
+        )
+        
+        # Sanitize file_path to prevent directory traversal
+        file_path = file_path.lstrip('/')
+        if '..' in file_path or file_path.startswith('/'):
+            return Response(
+                {'error': 'Invalid file path'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        full_file_path = os.path.join(content_base_path, file_path)
+        
+        # Ensure the file is within the content directory
+        if not os.path.abspath(full_file_path).startswith(os.path.abspath(content_base_path)):
+            return Response(
+                {'error': 'Invalid file path'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not os.path.exists(full_file_path) or not os.path.isfile(full_file_path):
+            return Response(
+                {'error': 'Content file not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Determine content type
+        ext = os.path.splitext(file_path)[1].lower()
+        content_types = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+            '.webp': 'image/webp',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.ogg': 'video/ogg',
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav',
+        }
+        content_type = content_types.get(ext, 'application/octet-stream')
+        
+        # Serve file
+        response = FileResponse(open(full_file_path, 'rb'), content_type=content_type)
+        response['Access-Control-Allow-Origin'] = '*'  # Adjust for production
+        return response
+    
+    except H5PContent.DoesNotExist:
+        return Response(
+            {'error': 'H5P content not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Error serving content file: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_h5p_core_files_view(request):
+    """
+    Get H5P core file URLs.
+    
+    Returns URLs for H5P core JavaScript and CSS files that must be loaded
+    before rendering any H5P content.
+    """
+    core_files = get_h5p_core_files(request)
+    return Response(core_files, status=status.HTTP_200_OK)
 

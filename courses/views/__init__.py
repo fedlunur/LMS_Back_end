@@ -23,6 +23,10 @@ from .h5p_views import (
     list_h5p_libraries_view,
     list_h5p_contents_view,
     save_h5p_result_view,
+    get_h5p_content_json_view,
+    get_h5p_library_file_view,
+    get_h5p_content_file_view,
+    get_h5p_core_files_view,
 )
 
 __all__ = [
