@@ -2191,3 +2191,30 @@ class H5PFile(models.Model):
     
     def __str__(self):
         return f"{self.content.title} - {self.file.name}"
+
+
+class H5PResult(models.Model):
+    """Stores results/scores from H5P content execution"""
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='h5p_results')
+    h5p_content = models.ForeignKey(H5PContent, on_delete=models.CASCADE, related_name='results')
+    lesson = models.ForeignKey(Lesson, on_delete=models.SET_NULL, null=True, blank=True, related_name='h5p_results')
+    
+    score = models.FloatField(default=0.0)
+    max_score = models.FloatField(default=0.0)
+    opened = models.DateTimeField(auto_now_add=True)
+    finished = models.DateTimeField(auto_now=True)
+    time = models.PositiveIntegerField(default=0, help_text="Time spent in seconds")
+    
+    # Detailed result data (xAPI statement or similar)
+    result_json = models.JSONField(null=True, blank=True)
+    
+    class Meta:
+        verbose_name_plural = "H5P Results"
+        ordering = ['-finished']
+        indexes = [
+            models.Index(fields=['student', 'h5p_content']),
+            models.Index(fields=['student', 'lesson']),
+        ]
+    
+    def __str__(self):
+        return f"{self.student.username} - {self.h5p_content.title} - {self.score}/{self.max_score}"

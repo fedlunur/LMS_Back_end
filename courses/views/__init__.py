@@ -22,6 +22,7 @@ from .h5p_views import (
     link_h5p_to_lesson_view,
     list_h5p_libraries_view,
     list_h5p_contents_view,
+    save_h5p_result_view,
 )
 
 __all__ = [

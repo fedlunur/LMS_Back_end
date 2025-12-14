@@ -393,16 +393,31 @@ class H5PContentSerializer(serializers.ModelSerializer):
     files = H5PFileSerializer(many=True, read_only=True)
     content_url = serializers.SerializerMethodField()
     file_urls = serializers.SerializerMethodField()
+    lesson_id = serializers.SerializerMethodField()
     
     class Meta:
         model = H5PContent
         fields = [
             'id', 'title', 'library', 'parameters', 'metadata',
             'content_path', 'content_url', 'files', 'file_urls',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'lesson_id'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
+    def get_lesson_id(self, obj):
+        """Get the ID of the lesson this content belongs to"""
+        # Check video lessons
+        video_lesson = obj.video_lessons.first()
+        if video_lesson:
+            return video_lesson.lesson.id
+            
+        # Check quiz lessons
+        quiz_lesson = obj.quiz_lessons.first()
+        if quiz_lesson:
+            return quiz_lesson.lesson.id
+            
+        return None
+
     def get_content_url(self, obj):
         """Get the URL prefix for content assets"""
         return get_h5p_content_url(obj)
@@ -421,3 +436,15 @@ class H5PContentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = H5PContent
         fields = ['id', 'title', 'library', 'parameters', 'metadata']
+
+
+class H5PResultSerializer(serializers.ModelSerializer):
+    """Serializer for H5P results"""
+    class Meta:
+        model = H5PResult
+        fields = [
+            'id', 'student', 'h5p_content', 'lesson',
+            'score', 'max_score', 'opened', 'finished', 'time', 'result_json'
+        ]
+        read_only_fields = ['id', 'student', 'opened', 'finished']
+

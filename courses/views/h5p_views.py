@@ -17,9 +17,10 @@ from django.http import JsonResponse
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 
-from courses.models import H5PContent, H5PLibrary, Lesson, VideoLesson, QuizLesson
+from courses.models import H5PContent, H5PLibrary, Lesson, VideoLesson, QuizLesson, H5PResult
 from courses.h5p_utils import process_h5p_file
-from courses.serializers import H5PContentSerializer, H5PLibrarySerializer
+from courses.serializers import H5PContentSerializer, H5PLibrarySerializer, H5PResultSerializer
+
 
 
 @api_view(['POST'])
@@ -31,8 +32,7 @@ def upload_h5p_file_view(request):
     Expected POST data:
     - h5p_file: The .h5p file to upload
     - title (optional): Custom title for the content
-    - lesson_id (optional): ID of lesson to link this content to
-    - lesson_type (optional): 'video' or 'quiz' - type of lesson
+    - lesson_type (optional): 'video' or 'quiz' - type of lesson (inferred from lesson if not provided)
     """
     if 'h5p_file' not in request.FILES:
         return Response(
@@ -62,46 +62,56 @@ def upload_h5p_file_view(request):
         title = request.data.get('title', None)
         lesson_id = request.data.get('lesson_id', None)
         lesson_type = request.data.get('lesson_type', None)
+
+        if not lesson_id:
+            return Response(
+                {'error': 'lesson_id is mandatory'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Process the H5P file
         h5p_content = process_h5p_file(temp_path, title=title)
         
-        # Link to lesson if provided
-        if lesson_id and lesson_type:
-            try:
-                lesson = Lesson.objects.get(id=lesson_id)
-                
-                # Verify user has permission (must be instructor of the course)
-                if lesson.course.instructor != request.user:
-                    return Response(
-                        {'error': 'You do not have permission to modify this lesson'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-                
-                if lesson_type == 'video':
-                    video_lesson, created = VideoLesson.objects.get_or_create(lesson=lesson)
-                    video_lesson.h5p_content = h5p_content
-                    video_lesson.save()
-                elif lesson_type == 'quiz':
-                    quiz_lesson, created = QuizLesson.objects.get_or_create(lesson=lesson)
-                    quiz_lesson.h5p_content = h5p_content
-                    quiz_lesson.save()
-                else:
-                    return Response(
-                        {'error': f'Invalid lesson_type: {lesson_type}. Must be "video" or "quiz"'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            except Lesson.DoesNotExist:
+        # Link to lesson
+        try:
+            lesson = Lesson.objects.get(id=lesson_id)
+            
+            # Verify user has permission (must be instructor of the course)
+            if lesson.course.instructor != request.user:
                 return Response(
-                    {'error': f'Lesson with id {lesson_id} not found'},
-                    status=status.HTTP_404_NOT_FOUND
+                    {'error': 'You do not have permission to modify this lesson'},
+                    status=status.HTTP_403_FORBIDDEN
                 )
+            
+            # Determine lesson type from lesson object if not provided
+            if not lesson_type:
+                lesson_type = lesson.content_type
+
+            if lesson_type == 'video':
+                video_lesson, created = VideoLesson.objects.get_or_create(lesson=lesson)
+                video_lesson.h5p_content = h5p_content
+                video_lesson.save()
+            elif lesson_type == 'quiz':
+                quiz_lesson, created = QuizLesson.objects.get_or_create(lesson=lesson)
+                quiz_lesson.h5p_content = h5p_content
+                quiz_lesson.save()
+            else:
+                return Response(
+                    {'error': f'Invalid lesson_type: {lesson_type}. Must be "video" or "quiz"'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Lesson.DoesNotExist:
+            return Response(
+                {'error': f'Lesson with id {lesson_id} not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
         # Serialize and return
         serializer = H5PContentSerializer(h5p_content, context={'request': request})
         return Response({
             'success': True,
             'content': serializer.data,
+            'lesson_id': lesson_id,
             'message': 'H5P file processed successfully'
         }, status=status.HTTP_201_CREATED)
     
@@ -136,7 +146,23 @@ def get_h5p_content_view(request, content_id):
         # Or allow access if they're the instructor
         
         serializer = H5PContentSerializer(h5p_content, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = serializer.data
+        
+        # Explicitly add lesson_id if not present in serializer data
+        if 'lesson_id' not in data:
+            lesson_id = None
+            # Check video lessons
+            video_lesson = h5p_content.video_lessons.first()
+            if video_lesson:
+                lesson_id = video_lesson.lesson.id
+            else:
+                # Check quiz lessons
+                quiz_lesson = h5p_content.quiz_lessons.first()
+                if quiz_lesson:
+                    lesson_id = quiz_lesson.lesson.id
+            data['lesson_id'] = lesson_id
+            
+        return Response(data, status=status.HTTP_200_OK)
     
     except H5PContent.DoesNotExist:
         return Response(
@@ -195,7 +221,10 @@ def get_lesson_h5p_content_view(request, lesson_id):
             )
         
         serializer = H5PContentSerializer(h5p_content, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = serializer.data
+        # Explicitly set lesson_id from the request parameter
+        data['lesson_id'] = int(lesson_id)
+        return Response(data, status=status.HTTP_200_OK)
     
     except Lesson.DoesNotExist:
         return Response(
@@ -305,3 +334,71 @@ def list_h5p_contents_view(request):
     
     serializer = H5PContentSerializer(contents, many=True, context={'request': request})
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def save_h5p_result_view(request):
+    """
+    Save results from H5P content execution.
+    
+    Expected POST data:
+    - content_id: ID of the H5P content
+    - score: Score achieved
+    - max_score: Maximum possible score
+    - time: Time spent in seconds
+    - result_json: Detailed result object (optional)
+    """
+    content_id = request.data.get('content_id')
+    score = request.data.get('score')
+    max_score = request.data.get('max_score')
+    
+    if not content_id or score is None or max_score is None:
+        return Response(
+            {'error': 'content_id, score, and max_score are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        h5p_content = H5PContent.objects.get(id=content_id)
+        
+        # Try to find the lesson context
+        # This is tricky because one H5P content could be used in multiple lessons
+        # Ideally, the frontend should send the lesson_id if known
+        lesson_id = request.data.get('lesson_id')
+        lesson = None
+        
+        if lesson_id:
+            try:
+                lesson = Lesson.objects.get(id=lesson_id)
+            except Lesson.DoesNotExist:
+                pass
+        
+        # Create result record
+        result = H5PResult.objects.create(
+            student=request.user,
+            h5p_content=h5p_content,
+            lesson=lesson,
+            score=float(score),
+            max_score=float(max_score),
+            time=int(request.data.get('time', 0)),
+            result_json=request.data.get('result_json')
+        )
+        
+        serializer = H5PResultSerializer(result)
+        return Response({
+            'success': True,
+            'result': serializer.data
+        }, status=status.HTTP_201_CREATED)
+        
+    except H5PContent.DoesNotExist:
+        return Response(
+            {'error': 'H5P content not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': f'Error saving result: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+

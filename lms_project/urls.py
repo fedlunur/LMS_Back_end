@@ -75,6 +75,7 @@ from courses.views import (
     link_h5p_to_lesson_view,
     list_h5p_libraries_view,
     list_h5p_contents_view,
+    save_h5p_result_view,
 )
 from courses.views.assignment_views import (
     get_peer_review_view,
@@ -362,6 +363,7 @@ urlpatterns = [
     re_path(r'^api/h5p/lesson/(?P<lesson_id>\d+)/link/?$', link_h5p_to_lesson_view, name='link_h5p_to_lesson'),
     re_path(r'^api/h5p/libraries/?$', list_h5p_libraries_view, name='list_h5p_libraries'),
     re_path(r'^api/h5p/contents/?$', list_h5p_contents_view, name='list_h5p_contents'),
+    re_path(r'^api/h5p/result/?$', save_h5p_result_view, name='save_h5p_result'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
