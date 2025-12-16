@@ -1,7 +1,7 @@
 # views/base.py
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Avg
 from django.contrib.auth import get_user_model
 
 from ..serializers import DynamicFieldSerializer
@@ -44,12 +44,16 @@ class GenericModelViewSet(viewsets.ModelViewSet):
         # Optimize course queries
         if model_name == 'course':
             try:
-                # Select common relations and annotate enrollment counts for efficient serialization
+                # Select common relations and annotate enrollment counts and ratings for efficient serialization
                 queryset = queryset.select_related('instructor', 'category', 'level').annotate(
                     _total_enrollments=Count(
                         'enrollments',
                         filter=Q(enrollments__payment_status='completed', enrollments__is_enrolled=True),
                         distinct=True,
+                    ),
+                    _average_rating=Avg(
+                        'ratings__rating',
+                        filter=Q(ratings__is_public=True, ratings__is_approved=True)
                     )
                 )
             except Exception:
@@ -127,9 +131,92 @@ class GenericModelViewSet(viewsets.ModelViewSet):
                     Q(course_id__in=enrolled_course_ids, is_public=True)  # Enrolled sees public only
                 )
 
-        # Query parameter filtering
+        # Enhanced filtering, search, and sorting for course model
+        if model_name == 'course':
+            # Apply search filter
+            search_query = self.request.query_params.get('search', '').strip()
+            if search_query:
+                queryset = queryset.filter(
+                    Q(title__icontains=search_query) | Q(description__icontains=search_query)
+                )
+            
+            # Apply category filter
+            category_id = self.request.query_params.get('category')
+            if category_id:
+                try:
+                    queryset = queryset.filter(category_id=int(category_id))
+                except (ValueError, TypeError):
+                    pass
+            
+            # Apply level filter
+            level_id = self.request.query_params.get('level')
+            if level_id:
+                try:
+                    queryset = queryset.filter(level_id=int(level_id))
+                except (ValueError, TypeError):
+                    pass
+            
+            # Apply instructor filter
+            instructor_id = self.request.query_params.get('instructor')
+            if instructor_id:
+                try:
+                    queryset = queryset.filter(instructor_id=int(instructor_id))
+                except (ValueError, TypeError):
+                    pass
+            
+            # Apply price range filters
+            min_price = self.request.query_params.get('min_price')
+            if min_price:
+                try:
+                    queryset = queryset.filter(price__gte=float(min_price))
+                except (ValueError, TypeError):
+                    pass
+            
+            max_price = self.request.query_params.get('max_price')
+            if max_price:
+                try:
+                    queryset = queryset.filter(price__lte=float(max_price))
+                except (ValueError, TypeError):
+                    pass
+            
+            # Apply sorting
+            ordering = self.request.query_params.get('ordering')
+            if ordering:
+                # Handle special ordering mappings from frontend
+                ordering_map = {
+                    'popular': '-_total_enrollments',
+                    'rating': '-_average_rating',
+                    'newest': '-created_at',
+                    'price-low': 'price',
+                    'price-high': '-price',
+                    'title-asc': 'title',
+                    'title-desc': '-title',
+                }
+                
+                if ordering in ordering_map:
+                    ordering = ordering_map[ordering]
+                
+                # Validate ordering field to prevent SQL injection
+                allowed_order_fields = [
+                    'created_at', '-created_at',
+                    'updated_at', '-updated_at',
+                    'title', '-title',
+                    'price', '-price',
+                    '_average_rating', '-_average_rating',
+                    '_total_enrollments', '-_total_enrollments',
+                ]
+                
+                # Check if ordering is in allowed fields
+                if ordering in allowed_order_fields:
+                    queryset = queryset.order_by(ordering)
+                # If invalid, default ordering will be applied by model Meta
+        
+        # Query parameter filtering (for other models and direct field matches)
         filter_kwargs = {}
         for field, value in self.request.query_params.items():
+            # Skip special query parameters that are handled above
+            if field in ['search', 'category', 'level', 'instructor', 'min_price', 'max_price', 'ordering', 'page', 'page_size']:
+                continue
             if field in [f.name for f in model._meta.get_fields()]:
                 filter_kwargs[field] = value
         if filter_kwargs:
