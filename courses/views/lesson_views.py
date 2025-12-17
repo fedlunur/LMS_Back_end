@@ -274,6 +274,8 @@ def get_lesson_detail_view(request, lesson_id):
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
         def get_video_url():
+            if getattr(video, "h5p_iframe", None):
+                return None  # H5P content is handled separately
             if getattr(video, "youtube_url", None):
                 return video.youtube_url
             if getattr(video, "video_file", None):
@@ -305,6 +307,7 @@ def get_lesson_detail_view(request, lesson_id):
             "id": lesson.id,
             "title": video.title or lesson.title,
             "video_url": get_video_url(),
+            "h5p_iframe": getattr(video, "h5p_iframe", None),
             "duration": format_duration(video.duration or lesson.duration),
             "checkpoint_quizzes": checkpoint_quizzes,
         }
