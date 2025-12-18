@@ -390,7 +390,7 @@ class QuizLesson(models.Model):
         on_delete=models.CASCADE,
         related_name="quiz"
     )
-    h5p_iframe = models.TextField(blank=True, help_text="H5P iframe HTML code including script tag. If provided, quiz questions are not required.")
+    # h5p_iframe = models.TextField(blank=True, help_text="H5P iframe HTML code including script tag. If provided, quiz questions are not required.")
     type = models.CharField(
         max_length=50,
         choices=QUESTION_TYPE_CHOICES,
@@ -408,11 +408,6 @@ class QuizLesson(models.Model):
 
     def __str__(self):
         return f"Quiz - {self.lesson.title}"
-    
-    @property
-    def uses_h5p(self):
-        """Check if this quiz uses H5P content"""
-        return bool(self.h5p_iframe)
 
     
     

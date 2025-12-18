@@ -19,18 +19,12 @@ def mark_lesson_completed(user, lesson_id):
             return False, "Lesson is not accessible yet."
         
         # For quiz lessons: ensure the student has a passed attempt
-        # Exception: H5P quizzes can be marked complete without requiring a passed attempt
         if lesson.content_type == Lesson.ContentType.QUIZ:
-            quiz_lesson = getattr(lesson, 'quiz', None)
-            is_h5p_quiz = quiz_lesson and quiz_lesson.uses_h5p if quiz_lesson else False
-            
-            # Only require passed attempt for non-H5P quizzes
-            if not is_h5p_quiz:
-                latest_pass = QuizAttempt.objects.filter(
-                    student=user, lesson=lesson, is_in_progress=False, passed=True
-                ).order_by('-completed_at', '-started_at').first()
-                if not latest_pass:
-                    return False, "You must pass the quiz before marking this lesson as completed."
+            latest_pass = QuizAttempt.objects.filter(
+                student=user, lesson=lesson, is_in_progress=False, passed=True
+            ).order_by('-completed_at', '-started_at').first()
+            if not latest_pass:
+                return False, "You must pass the quiz before marking this lesson as completed."
 
         # Get or create lesson progress
         progress, created = LessonProgress.objects.get_or_create(
