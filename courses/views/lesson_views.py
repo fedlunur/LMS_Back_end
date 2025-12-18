@@ -252,11 +252,14 @@ def get_lesson_detail_view(request, lesson_id):
         # Include config and question count for context, not answers here
         quiz = lesson.quiz
         cfg = getattr(lesson, 'quiz_config', None)
+        quiz_data = DynamicFieldSerializer(quiz, model_name="quizlesson").data
         content = {
-            'quiz': DynamicFieldSerializer(quiz, model_name="quizlesson").data,
+            'quiz': quiz_data,
             'config': DynamicFieldSerializer(cfg, model_name="quizconfiguration").data if cfg else None,
             'question_count': lesson.quiz_questions.count(),
             'total_marks': lesson.calculate_total_marks(),
+            # Include h5p_iframe at top level for easy access (similar to video lessons)
+            'h5p_iframe': getattr(quiz, 'h5p_iframe', None),
         }
     elif lesson.content_type == Lesson.ContentType.VIDEO and hasattr(lesson, 'video'):
         content = DynamicFieldSerializer(lesson.video, model_name="videolesson").data
