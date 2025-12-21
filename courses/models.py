@@ -298,6 +298,7 @@ class VideoLesson(models.Model):
     lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name="video")
     video_file = models.FileField(upload_to='lesson_videos/', null=True, blank=True)
     youtube_url = models.URLField(max_length=500, blank=True)
+    h5p_iframe = models.TextField(blank=True, help_text="H5P iframe HTML code including script tag")
     title = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True)
     transcript = models.TextField(blank=True)
@@ -311,9 +312,24 @@ class VideoLesson(models.Model):
 
     def clean(self):
         from django.core.exceptions import ValidationError
-        # Allow only one source: either uploaded file OR YouTube URL (not both)
-        if self.video_file and self.youtube_url:
-            raise ValidationError({"youtube_url": "Provide either a video file or a YouTube URL, not both."})
+        # Count how many content sources are provided
+        content_sources = sum([
+            bool(self.video_file),
+            bool(self.youtube_url),
+            bool(self.h5p_iframe)
+        ])
+        
+        # Allow only one source: either uploaded file OR YouTube URL OR H5P iframe (not multiple)
+        if content_sources > 1:
+            raise ValidationError({
+                "h5p_iframe": "Provide only one content source: either a video file, YouTube URL, or H5P iframe, not multiple."
+            })
+        
+        # Ensure at least one source is provided
+        if content_sources == 0:
+            raise ValidationError({
+                "h5p_iframe": "Provide at least one content source: video file, YouTube URL, or H5P iframe."
+            })
 
     def save(self, *args, **kwargs):
         # Enforce validation at model level for generic serializers/forms
@@ -374,6 +390,7 @@ class QuizLesson(models.Model):
         on_delete=models.CASCADE,
         related_name="quiz"
     )
+    # h5p_iframe = models.TextField(blank=True, help_text="H5P iframe HTML code including script tag. If provided, quiz questions are not required.")
     type = models.CharField(
         max_length=50,
         choices=QUESTION_TYPE_CHOICES,

@@ -7,6 +7,7 @@ from ..serializers import DynamicFieldSerializer
 from rest_framework.response import Response
 from rest_framework import status
 from ..models import Course, Enrollment
+from django.db.models import Q
 
 
 @api_view(['POST'])

@@ -1,0 +1,529 @@
+{
+  "info": {
+    "_postman_id": "h5p-integration-test-2024",
+    "name": "H5P Integration API Tests",
+    "description": "Postman collection for testing H5P iframe integration in video and quiz lessons",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"teacher@example.com\",\n    \"password\": \"your_password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/login/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "login", ""]
+            },
+            "description": "Login to get access token. Save the access token to {{access_token}} variable."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Video Lessons with H5P",
+      "item": [
+        {
+          "name": "Create Video Lesson with H5P Iframe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "lesson",
+                  "value": "{{lesson_id}}",
+                  "type": "text",
+                  "description": "ID of the base lesson (create lesson first)"
+                },
+                {
+                  "key": "title",
+                  "value": "H5P Interactive Video Lesson",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "This lesson uses H5P interactive video content",
+                  "type": "text"
+                },
+                {
+                  "key": "h5p_iframe",
+                  "value": "<iframe src=\"https://h5p.org/h5p/embed/617\" width=\"383\" height=\"277\" frameborder=\"0\" allowfullscreen=\"allowfullscreen\" allow=\"geolocation *; microphone *; camera *; midi *; encrypted-media *\" title=\"Interactive Video\"></iframe><script src=\"https://h5p.org/sites/all/modules/h5p/library/js/h5p-resizer.js\" charset=\"UTF-8\"></script>",
+                  "type": "text",
+                  "description": "Complete H5P iframe HTML including script tag"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/videolesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "videolesson", ""]
+            },
+            "description": "Create a video lesson with H5P iframe. Note: Only one content source (video_file, youtube_url, or h5p_iframe) should be provided."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Video Lesson with H5P Iframe",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "lesson",
+                  "value": "{{lesson_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "h5p_iframe",
+                  "value": "<iframe src=\"https://h5p.org/h5p/embed/617\" width=\"383\" height=\"277\" frameborder=\"0\" allowfullscreen=\"allowfullscreen\" allow=\"geolocation *; microphone *; camera *; midi *; encrypted-media *\" title=\"Interactive Video\"></iframe><script src=\"https://h5p.org/sites/all/modules/h5p/library/js/h5p-resizer.js\" charset=\"UTF-8\"></script>",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/videolesson/{{videolesson_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "videolesson", "{{videolesson_id}}", ""],
+              "variable": [
+                {
+                  "key": "videolesson_id",
+                  "value": "1",
+                  "description": "ID of the video lesson to update"
+                }
+              ]
+            },
+            "description": "Update an existing video lesson to use H5P iframe. This will replace any existing video_file or youtube_url."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Video Lesson Detail (with H5P)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/lesson-detail/{{lesson_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "lesson-detail", "{{lesson_id}}", ""],
+              "variable": [
+                {
+                  "key": "lesson_id",
+                  "value": "1",
+                  "description": "ID of the lesson"
+                }
+              ]
+            },
+            "description": "Get lesson detail. For video lessons with H5P, the response will include h5p_iframe in the content.player object."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Video Player Data (with H5P)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/video-player/{{lesson_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "video-player", "{{lesson_id}}", ""],
+              "variable": [
+                {
+                  "key": "lesson_id",
+                  "value": "1",
+                  "description": "ID of the video lesson"
+                }
+              ]
+            },
+            "description": "Get video player data including H5P iframe if present. The h5p_iframe field will be in the response."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Quiz Lessons with H5P",
+      "item": [
+        {
+          "name": "Create Quiz Lesson with H5P Iframe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"lesson\": {{lesson_id}},\n    \"h5p_iframe\": \"<iframe src=\\\"https://h5p.org/h5p/embed/617\\\" width=\\\"383\\\" height=\\\"277\\\" frameborder=\\\"0\\\" allowfullscreen=\\\"allowfullscreen\\\" allow=\\\"geolocation *; microphone *; camera *; midi *; encrypted-media *\\\" title=\\\"Interactive Video\\\"></iframe><script src=\\\"https://h5p.org/sites/all/modules/h5p/library/js/h5p-resizer.js\\\" charset=\\\"UTF-8\\\"></script>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/quizlesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quizlesson", ""]
+            },
+            "description": "Create a quiz lesson with H5P iframe. When h5p_iframe is provided, quiz questions are not required."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Quiz Lesson with H5P Iframe",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"lesson\": {{lesson_id}},\n    \"h5p_iframe\": \"<iframe src=\\\"https://h5p.org/h5p/embed/617\\\" width=\\\"383\\\" height=\\\"277\\\" frameborder=\\\"0\\\" allowfullscreen=\\\"allowfullscreen\\\" allow=\\\"geolocation *; microphone *; camera *; midi *; encrypted-media *\\\" title=\\\"Interactive Video\\\"></iframe><script src=\\\"https://h5p.org/sites/all/modules/h5p/library/js/h5p-resizer.js\\\" charset=\\\"UTF-8\\\"></script>\",\n    \"type\": \"multiple-choice\",\n    \"time_limit\": 30,\n    \"passing_score\": 70,\n    \"attempts\": 3,\n    \"randomize_questions\": false,\n    \"show_correct_answers\": true,\n    \"grading_policy\": \"highest\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/quizlesson/{{quizlesson_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quizlesson", "{{quizlesson_id}}", ""],
+              "variable": [
+                {
+                  "key": "quizlesson_id",
+                  "value": "1",
+                  "description": "ID of the quiz lesson to update"
+                }
+              ]
+            },
+            "description": "Update an existing quiz lesson to use H5P iframe."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Quiz Lesson Detail (with H5P)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/lesson-detail/{{lesson_id}}/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "lesson-detail", "{{lesson_id}}", ""],
+              "variable": [
+                {
+                  "key": "lesson_id",
+                  "value": "1",
+                  "description": "ID of the quiz lesson"
+                }
+              ]
+            },
+            "description": "Get quiz lesson detail. The response will include h5p_iframe in the content if H5P is used."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Validation Tests",
+      "item": [
+        {
+          "name": "Test: Video Lesson - Multiple Content Sources (Should Fail)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "lesson",
+                  "value": "{{lesson_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "h5p_iframe",
+                  "value": "<iframe src=\"https://h5p.org/h5p/embed/617\"></iframe>",
+                  "type": "text"
+                },
+                {
+                  "key": "youtube_url",
+                  "value": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/videolesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "videolesson", ""]
+            },
+            "description": "This should fail validation - cannot provide both h5p_iframe and youtube_url"
+          },
+          "response": []
+        },
+        {
+          "name": "Test: Video Lesson - No Content Source (Should Fail)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "lesson",
+                  "value": "{{lesson_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "title",
+                  "value": "Video without content",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/videolesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "videolesson", ""]
+            },
+            "description": "This should fail validation - must provide at least one content source (video_file, youtube_url, or h5p_iframe)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Helper Endpoints",
+      "item": [
+        {
+          "name": "Create Base Lesson (Video Type)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"course\": {{course_id}},\n    \"title\": \"H5P Video Lesson\",\n    \"description\": \"A lesson using H5P interactive content\",\n    \"content_type\": \"video\",\n    \"order\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/lesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "lesson", ""]
+            },
+            "description": "Create a base lesson with content_type='video'. Use the returned lesson ID for creating VideoLesson."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Base Lesson (Quiz Type)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"course\": {{course_id}},\n    \"title\": \"H5P Quiz Lesson\",\n    \"description\": \"A quiz lesson using H5P interactive content\",\n    \"content_type\": \"quiz\",\n    \"order\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/lesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "lesson", ""]
+            },
+            "description": "Create a base lesson with content_type='quiz'. Use the returned lesson ID for creating QuizLesson."
+          },
+          "response": []
+        },
+        {
+          "name": "List All Video Lessons",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/videolesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "videolesson", ""]
+            },
+            "description": "List all video lessons. Check for h5p_iframe field in responses."
+          },
+          "response": []
+        },
+        {
+          "name": "List All Quiz Lessons",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/quizlesson/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "quizlesson", ""]
+            },
+            "description": "List all quiz lessons. Check for h5p_iframe field in responses."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT access token obtained from login"
+    },
+    {
+      "key": "lesson_id",
+      "value": "1",
+      "type": "string",
+      "description": "ID of a base lesson (create using Helper Endpoints)"
+    },
+    {
+      "key": "course_id",
+      "value": "1",
+      "type": "string",
+      "description": "ID of an existing course"
+    },
+    {
+      "key": "videolesson_id",
+      "value": "1",
+      "type": "string",
+      "description": "ID of a video lesson"
+    },
+    {
+      "key": "quizlesson_id",
+      "value": "1",
+      "type": "string",
+      "description": "ID of a quiz lesson"
+    }
+  ]
+}
