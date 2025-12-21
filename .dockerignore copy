@@ -1,0 +1,53 @@
+# Python envs
+.venv
+venv
+ENV
+env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Django / SQLite / logs
+*.sqlite3
+*.log
+media/
+static/
+lms_project/media/
+lms_project/static/
+lms_project/staticfiles/
+lms_project/templates/
+templates/
+data/
+
+# Node / frontend / mockups
+node_modules/
+FrontendMockup/
+
+# Git / IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+
+# OS caches
+.DS_Store
+Thumbs.db
+
+# Testing / cache
+.cache/
+.mypy_cache/
+.pytest_cache/
+
+# Env files
+.env
+.env.local
+.env.*
+
+
+# ChromaDB embeddings
+lms_project/chroma_db/
