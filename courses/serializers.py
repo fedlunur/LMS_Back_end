@@ -325,6 +325,11 @@ class DynamicFieldSerializer(serializers.ModelSerializer):
         model = self.Meta.model
         attachments = validated_data.pop("attachments", None)
 
+        # VideoLesson: only one content source. If request sends a new video_file, clear H5P/YouTube.
+        if model.__name__ == "VideoLesson" and validated_data.get("video_file"):
+            validated_data["h5p_iframe"] = ""
+            validated_data["youtube_url"] = ""
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()

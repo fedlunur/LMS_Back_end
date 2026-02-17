@@ -332,6 +332,13 @@ class VideoLesson(models.Model):
             })
 
     def save(self, *args, **kwargs):
+        # When switching to H5P or YouTube, clear video_file so only one content source remains
+        # (PATCH may not send video_file, so the old file would otherwise stay and trigger ValidationError)
+        # Serializer.update() clears h5p/youtube when a new video_file is in the request.
+        if (self.h5p_iframe and str(self.h5p_iframe).strip()) or (
+            self.youtube_url and str(self.youtube_url).strip()
+        ):
+            self.video_file = None
         # Enforce validation at model level for generic serializers/forms
         self.full_clean()
         super().save(*args, **kwargs)
