@@ -2128,5 +2128,3 @@ class QuestionBankAnswer(models.Model):
     def __str__(self):
         return f"{self.question.question_text[:50]} - {self.answer_text}"
 
-
-# QuizBank

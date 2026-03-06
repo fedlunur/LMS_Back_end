@@ -125,6 +125,21 @@ router = DefaultRouter()
 # setting
 
 from payments.views import create_checkout_session_view, stripe_webhook_view, confirm_checkout_session_view
+from feedback.views import (
+    create_feedback_form_view,
+    list_feedback_forms_view,
+    retrieve_feedback_form_view,
+    update_feedback_form_view,
+    create_feedback_question_view,
+    update_feedback_question_view,
+    delete_feedback_question_view,
+    publish_feedback_form_view,
+    unpublish_feedback_form_view,
+    list_feedback_form_submissions_view,
+    list_student_feedback_forms_view,
+    retrieve_student_feedback_form_view,
+    submit_student_feedback_form_view,
+)
 
 
 router = DefaultRouter()           
@@ -344,6 +359,23 @@ urlpatterns = [
     re_path(r'^api/notifications/(?P<notification_id>\d+)/read/?$', mark_notification_read_view, name='mark_notification_read'),
     re_path(r'^api/notifications/read-all/?$', mark_all_notifications_read_view, name='mark_all_notifications_read'),
     re_path(r'^api/notifications/(?P<notification_id>\d+)/?$', get_notification_view, name='get_notification'),
+    
+    # Feedback (teacher)
+    re_path(r'^api/teacher/feedback/forms/?$', list_feedback_forms_view, name='teacher_feedback_forms_list'),
+    re_path(r'^api/teacher/feedback/forms/create/?$', create_feedback_form_view, name='teacher_feedback_form_create'),
+    re_path(r'^api/teacher/feedback/forms/(?P<form_id>\d+)/?$', retrieve_feedback_form_view, name='teacher_feedback_form_detail'),
+    re_path(r'^api/teacher/feedback/forms/(?P<form_id>\d+)/update/?$', update_feedback_form_view, name='teacher_feedback_form_update'),
+    re_path(r'^api/teacher/feedback/forms/(?P<form_id>\d+)/questions/?$', create_feedback_question_view, name='teacher_feedback_form_add_question'),
+    re_path(r'^api/teacher/feedback/questions/(?P<question_id>\d+)/?$', update_feedback_question_view, name='teacher_feedback_question_update'),
+    re_path(r'^api/teacher/feedback/questions/(?P<question_id>\d+)/delete/?$', delete_feedback_question_view, name='teacher_feedback_question_delete'),
+    re_path(r'^api/teacher/feedback/forms/(?P<form_id>\d+)/publish/?$', publish_feedback_form_view, name='teacher_feedback_form_publish'),
+    re_path(r'^api/teacher/feedback/forms/(?P<form_id>\d+)/unpublish/?$', unpublish_feedback_form_view, name='teacher_feedback_form_unpublish'),
+    re_path(r'^api/teacher/feedback/forms/(?P<form_id>\d+)/submissions/?$', list_feedback_form_submissions_view, name='teacher_feedback_form_submissions'),
+    
+    # Feedback (student)
+    re_path(r'^api/student/feedback/forms/?$', list_student_feedback_forms_view, name='student_feedback_forms_list'),
+    re_path(r'^api/student/feedback/forms/(?P<form_id>\d+)/?$', retrieve_student_feedback_form_view, name='student_feedback_form_detail'),
+    re_path(r'^api/student/feedback/forms/(?P<form_id>\d+)/submit/?$', submit_student_feedback_form_view, name='student_feedback_form_submit'),
     ] 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
