@@ -69,6 +69,7 @@ def _serialize_form(form: FeedbackForm, include_questions: bool = True) -> Dict[
         "is_published": form.is_published,
         "allow_anonymous": form.allow_anonymous,
         "allow_multiple_submissions": form.allow_multiple_submissions,
+        "allow_edit_after_submit": form.allow_edit_after_submit,
         "start_at": form.start_at,
         "end_at": form.end_at,
         "created_at": form.created_at,
@@ -108,6 +109,71 @@ def _serialize_submission(submission: FeedbackSubmission) -> Dict[str, Any]:
     }
 
 
+def _extract_answer_value(answer: FeedbackAnswer, question_type: str) -> Any:
+    if question_type in ("text", "textarea"):
+        return answer.answer_text
+
+    if question_type == "single_choice":
+        answer_json = answer.answer_json or {}
+        option_id = answer_json.get("option_id")
+        return str(option_id) if option_id is not None else answer.answer_text
+
+    if question_type == "multi_choice":
+        answer_json = answer.answer_json or {}
+        selected_options = answer_json.get("selected_options") or []
+        return [str(item.get("option_id")) for item in selected_options if item.get("option_id") is not None]
+
+    if question_type == "rating":
+        return answer.answer_number
+
+    if question_type == "yes_no":
+        return answer.answer_bool
+
+    return answer.answer_json or answer.answer_text
+
+
+def _latest_submission_for_student(form: FeedbackForm, user) -> FeedbackSubmission | None:
+    if form.allow_anonymous:
+        return None
+
+    return (
+        FeedbackSubmission.objects.filter(form=form, student=user, status="submitted")
+        .prefetch_related("answers__question")
+        .order_by("-submitted_at", "-created_at")
+        .first()
+    )
+
+
+def _serialize_form_for_student(form: FeedbackForm, user) -> Dict[str, Any]:
+    data = _serialize_form(form)
+
+    latest_submission = _latest_submission_for_student(form, user)
+    has_submitted = latest_submission is not None
+    can_edit_submission = bool(
+        has_submitted and form.allow_edit_after_submit and not form.allow_anonymous
+    )
+
+    last_submission_answers: Dict[int, Any] = {}
+    if latest_submission:
+        answers_by_qid = {ans.question_id: ans for ans in latest_submission.answers.all()}
+        for question in form.questions.all():
+            answer = answers_by_qid.get(question.id)
+            if answer is not None:
+                last_submission_answers[question.id] = _extract_answer_value(
+                    answer, question.question_type
+                )
+
+    data.update(
+        {
+            "has_submitted": has_submitted,
+            "can_edit_submission": can_edit_submission,
+            "submitted_at": latest_submission.submitted_at if latest_submission else None,
+            "last_submission_answers": last_submission_answers,
+        }
+    )
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Teacher APIs
 # ---------------------------------------------------------------------------
@@ -134,6 +200,7 @@ def create_feedback_form_view(request):
     target_id = payload.get("target_id") or 0
     allow_anonymous = bool(payload.get("allow_anonymous", False))
     allow_multiple_submissions = bool(payload.get("allow_multiple_submissions", False))
+    allow_edit_after_submit = bool(payload.get("allow_edit_after_submit", False))
     start_at = payload.get("start_at")
     end_at = payload.get("end_at")
 
@@ -162,6 +229,7 @@ def create_feedback_form_view(request):
         target_id=target_id,
         allow_anonymous=allow_anonymous,
         allow_multiple_submissions=allow_multiple_submissions,
+        allow_edit_after_submit=allow_edit_after_submit,
         start_at=start_at,
         end_at=end_at,
         is_published=False,
@@ -275,6 +343,7 @@ def update_feedback_form_view(request, form_id: int):
         "description",
         "allow_anonymous",
         "allow_multiple_submissions",
+        "allow_edit_after_submit",
         "start_at",
         "end_at",
     ]:
@@ -715,7 +784,7 @@ def list_student_feedback_forms_view(request):
         )
 
     qs = _eligible_forms_for_student(user).prefetch_related("questions__options")
-    data = [_serialize_form(f) for f in qs]
+    data = [_serialize_form_for_student(f, user) for f in qs]
     return Response(
         {"success": True, "data": data, "message": "Available feedback forms retrieved."},
         status=status.HTTP_200_OK,
@@ -753,7 +822,11 @@ def retrieve_student_feedback_form_view(request, form_id: int):
         "questions__options"
     ).first()
     return Response(
-        {"success": True, "data": _serialize_form(form), "message": "Feedback form retrieved."},
+        {
+            "success": True,
+            "data": _serialize_form_for_student(form, user),
+            "message": "Feedback form retrieved.",
+        },
         status=status.HTTP_200_OK,
     )
 
@@ -805,24 +878,34 @@ def submit_student_feedback_form_view(request, form_id: int):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if not form.allow_multiple_submissions and not form.allow_anonymous:
-        existing = FeedbackSubmission.objects.filter(form=form, student=user).exists()
-        if existing:
-            return Response(
-                {
-                    "success": False,
-                    "message": "You have already submitted feedback for this form.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    latest_submission = _latest_submission_for_student(form, user)
+    if (
+        latest_submission
+        and not form.allow_multiple_submissions
+        and not form.allow_edit_after_submit
+    ):
+        return Response(
+            {
+                "success": False,
+                "message": "You have already submitted feedback for this form.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     with transaction.atomic():
-        submission = FeedbackSubmission.objects.create(
-            form=form,
-            student=None if form.allow_anonymous else user,
-            status="submitted",
-            submitted_at=timezone.now(),
-        )
+        if latest_submission and form.allow_edit_after_submit:
+            submission = latest_submission
+            submission.status = "submitted"
+            submission.submitted_at = timezone.now()
+            submission.save(update_fields=["status", "submitted_at", "updated_at"])
+            submission.answers.all().delete()
+        else:
+            submission = FeedbackSubmission.objects.create(
+                form=form,
+                student=None if form.allow_anonymous else user,
+                status="submitted",
+                submitted_at=timezone.now(),
+            )
 
         for q in questions:
             if q.id not in answers_by_qid:

@@ -35,6 +35,7 @@ class FeedbackForm(models.Model):
     is_published = models.BooleanField(default=False)
     allow_anonymous = models.BooleanField(default=False)
     allow_multiple_submissions = models.BooleanField(default=False)
+    allow_edit_after_submit = models.BooleanField(default=False)
     start_at = models.DateTimeField(null=True, blank=True)
     end_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
