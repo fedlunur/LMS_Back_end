@@ -322,7 +322,7 @@ EMAIL_VERIFICATION_TOKEN_EXPIRY_MINUTES = int(
 
 # -------------------- PAGINATION SETTINGS --------------------
 # Default number of items per page for list endpoints
-DEFAULT_PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE", "9"))
+DEFAULT_PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE", "10"))
 # Maximum number of items per page (can be overridden via query parameter)
 MAX_PAGE_SIZE = int(os.getenv("MAX_PAGE_SIZE", "100"))
 

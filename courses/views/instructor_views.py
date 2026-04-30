@@ -366,16 +366,34 @@ def get_instructor_courses_view(request):
     Get all courses created by the instructor (published and draft).
     """
     user = request.user
+    ordering = request.query_params.get('ordering', '-updated_at')
     # Filter courses where the user is the instructor and status is published or draft
     courses = Course.objects.filter(
         instructor=user,
         status__in=['published', 'draft']
-    ).order_by('-updated_at')
+    ).annotate(
+        student_count=Count(
+            'enrollments', 
+            filter=Q(enrollments__payment_status='completed', enrollments__is_enrolled=True)
+        )
+    ).order_by(ordering)
+
+    from rest_framework.pagination import PageNumberPagination
+    paginator = PageNumberPagination()
+    # Ensure we use the page_size from query params or default to 10
+    paginator.page_size = int(request.query_params.get('page_size', 10))
     
-    serializer = DynamicFieldSerializer(courses, many=True, model_name="course")
+    result_page = paginator.paginate_queryset(courses.distinct(), request)
     
+    # Serialize the paginated data
+    serializer = DynamicFieldSerializer(result_page, many=True, model_name="course")
+    
+    # Return a response that matches the frontend's expectations
     return Response({
         "success": True,
         "data": serializer.data,
+        "count": paginator.page.paginator.count,
+        "current_page": paginator.page.number,
+        "total_pages": paginator.page.paginator.num_pages,
         "message": "Instructor courses retrieved successfully."
     }, status=status.HTTP_200_OK)
